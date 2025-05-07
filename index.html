@@ -3,107 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Form with Stripe</title>
-    <script src="https://js.stripe.com/v3/"></script>
+    <title>YouTube Ad Blocker</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f2f2f2;
-            padding: 20px;
-        }
-        .container {
-            max-width: 400px;
-            margin: auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h2 {
             text-align: center;
+            padding: 20px;
         }
-        label {
-            display: block;
-            margin-top: 10px;
-        }
-        input[type="text"],
-        input[type="number"],
-        input[type="tel"],
-        input[type="submit"] {
-            width: 100%;
-            padding: 10px;
-            margin-top: 5px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            box-sizing: border-box;
-        }
-        input[type="submit"] {
-            background-color: #4CAF50;
-            color: white;
+        iframe {
+            width: 80%;
+            height: 450px;
             border: none;
-            cursor: pointer;
-            margin-top: 20px;
         }
-        input[type="submit"]:hover {
-            background-color: #45a049;
+        h1 {
+            color: #333;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>Payment Information</h2>
-        <form id="payment-form">
-            <label for="cardholder">Cardholder Name</label>
-            <input type="text" id="cardholder" name="cardholder" placeholder="John Doe" required>
-
-            <label for="card-element">Credit or Debit Card</label>
-            <div id="card-element"></div>
-
-            <!-- A place to display error messages -->
-            <div id="card-errors" role="alert"></div>
-
-            <input type="submit" value="Submit Payment">
-        </form>
-    </div>
+    <h1>YouTube Ad Blocker</h1>
+    <p>Click the play button below to watch a video. Ads should be blocked.</p>
+    
+    <!-- YouTube Embed -->
+    <iframe id="youtube-video" src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1" allow="autoplay" allowfullscreen></iframe>
 
     <script>
-        // Set your publishable key here
-        var stripe = Stripe('YOUR_PUBLISHABLE_KEY');
-        var elements = stripe.elements();
-        var card = elements.create('card');
-        card.mount('#card-element');
+        // Function to remove ad elements from the page
+        function removeAds() {
+            const adOverlay = document.querySelector('.ytp-ad-player-overlay');
+            const adContainer = document.querySelector('.ytp-ad-container');
+            const adText = document.querySelector('.ytp-ad-text');
+            const videoAds = document.querySelector('.video-ads');
 
-        // Handle form submission
-        var form = document.getElementById('payment-form');
-        form.addEventListener('submit', function(event) {
-            event.preventDefault();
-
-            stripe.createToken(card).then(function(result) {
-                if (result.error) {
-                    // Inform the user if there was an error
-                    var errorElement = document.getElementById('card-errors');
-                    errorElement.textContent = result.error.message;
-                } else {
-                    // Send the token to your server
-                    stripeTokenHandler(result.token);
-                }
-            });
-        });
-
-        // Send the token to your server
-        function stripeTokenHandler(token) {
-            var form = document.getElementById('payment-form');
-
-            // Insert the token into the form so it gets submitted to the server
-            var hiddenInput = document.createElement('input');
-            hiddenInput.setAttribute('type', 'hidden');
-            hiddenInput.setAttribute('name', 'stripeToken');
-            hiddenInput.setAttribute('value', token.id);
-            form.appendChild(hiddenInput);
-
-            // Submit the form
-            form.submit();
+            if (adOverlay) {
+                adOverlay.remove();
+            }
+            if (adContainer) {
+                adContainer.remove();
+            }
+            if (adText) {
+                adText.remove();
+            }
+            if (videoAds) {
+                videoAds.remove();
+            }
         }
+
+        // Run the removeAds function periodically
+        setInterval(removeAds, 1000);
+
+        // Ensure ads are removed after navigating to a new video
+        document.addEventListener('yt-navigate-finish', () => {
+            setInterval(removeAds, 1000);  // Ensure ads are removed for new videos
+        });
     </script>
 </body>
 </html>
