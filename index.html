@@ -3,59 +3,988 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Ad Blocker</title>
+    <title>3D Chess Game - Multiplayer</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 20px;
-        }
-        iframe {
-            width: 80%;
-            height: 450px;
-            border: none;
-        }
-        h1 {
-            color: #333;
-        }
+        body { margin: 0; font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #gameContainer { position: relative; width: 100%; height: 100%; }
+        #info { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; text-align: center; z-index: 100; padding: 10px; background-color: rgba(0,0,0,0.6); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+        #playerInfo { margin-bottom: 5px; font-size: 0.9em;}
+        #status { font-size: 1em; margin-top:5px;}
+        #messageBox { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(30, 30, 30, 0.97); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.6); z-index: 1000; display: none; text-align: center; border: 1px solid #444; }
+        #messageBox button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 1em; transition: background-color 0.3s; }
+        #messageBox button:hover { background-color: #0056b3; }
+        canvas { display: block; }
+        #nameEntryModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); z-index: 2000; display: flex; justify-content: center; align-items: center; }
+        #nameEntryBox { background-color: #2c2c2c; padding: 30px; border-radius: 10px; text-align: center; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #nameEntryBox h2 { margin-top: 0; color: #f0f0f0; }
+        #nameInput { padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #555; background-color: #333; color: #fff; width: 80%; }
+        #joinGameButton { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        #joinGameButton:hover { background-color: #1e7e34; }
+        .confetti { position: absolute; width: 10px; height: 10px; background-color: red; opacity: 0.7; border-radius: 50%; }
     </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.138.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.138.0/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
-    <h1>YouTube Ad Blocker</h1>
-    <p>Click the play button below to watch a video. Ads should be blocked.</p>
-    
-    <!-- YouTube Embed -->
-    <iframe id="youtube-video" src="https://www.youtube.com/watch?v=G5dwlwcp-cM" allow="autoplay" allowfullscreen></iframe>
+    <div id="nameEntryModal">
+        <div id="nameEntryBox">
+            <h2>Enter Your Name</h2>
+            <input type="text" id="nameInput" placeholder="Player Name">
+            <button id="joinGameButton">Join Game</button>
+        </div>
+    </div>
 
-    <script>
-        // Function to remove ad elements from the page
-        function removeAds() {
-            const adOverlay = document.querySelector('.ytp-ad-player-overlay');
-            const adContainer = document.querySelector('.ytp-ad-container');
-            const adText = document.querySelector('.ytp-ad-text');
-            const videoAds = document.querySelector('.video-ads');
+    <div id="gameContainer" style="display: none;">
+        <div id="info">
+            <h1 class="text-2xl font-bold">3D Chess - Multiplayer</h1>
+            <div id="playerInfo">Your Name: <span id="localPlayerName"></span> (<span id="localPlayerColor"></span>)</div>
+            <p id="turnInfo" class="text-lg">Loading game...</p>
+            <p id="status" class="text-md">Waiting for players...</p>
+        </div>
+        <div id="messageBox">
+            <p id="messageText"></p>
+            <button id="messageButton">OK</button>
+        </div>
+        </div>
 
-            if (adOverlay) {
-                adOverlay.remove();
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Setup ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_API_KEY", authDomain: "YOUR_AUTH_DOMAIN", projectId: "YOUR_PROJECT_ID" }; // Fallback for local dev
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-chess-app';
+        const gameId = 'defaultPublicGame'; // Single public game room
+        const gameDocRef = doc(db, `/artifacts/${appId}/public/data/chessGames/${gameId}`);
+
+        let localPlayerAuthId = null;
+        let localPlayerName = '';
+        let localPlayerColor = null; // 'white' or 'black'
+        let unsubscribeGameListener = null;
+
+
+        // --- Scene Setup ---
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+
+        // --- Game State (local copy, synced from Firestore) ---
+        const boardSize = 8;
+        const squareSize = 10; 
+        const pieceElevation = 0.5;
+        let boardSquares = []; 
+        let chessPieces = {}; // Stores THREE.Object3D, keyed by a unique piece ID (e.g., "pawn_w_0")
+        let gameData = {}; // This will hold the game state from Firestore
+
+        let selectedPiece = null; // THREE.Object3D of the selected piece
+        let highlightedSquares = []; 
+        let gameOver = false; // Local game over flag
+
+        const pieceColors = { white: 0xdddddd, black: 0x222222 };
+        const squareColors = { light: 0xDEB887, dark: 0x8B4513, highlight: 0x32CD32, selected: 0xFFD700 };
+
+        // --- DOM Elements ---
+        const turnInfoElement = document.getElementById('turnInfo');
+        const statusElement = document.getElementById('status');
+        const messageBox = document.getElementById('messageBox');
+        const messageText = document.getElementById('messageText');
+        const messageButton = document.getElementById('messageButton');
+        const nameEntryModal = document.getElementById('nameEntryModal');
+        const nameInput = document.getElementById('nameInput');
+        const joinGameButton = document.getElementById('joinGameButton');
+        const gameContainer = document.getElementById('gameContainer');
+        const localPlayerNameSpan = document.getElementById('localPlayerName');
+        const localPlayerColorSpan = document.getElementById('localPlayerColor');
+
+        // --- Confetti ---
+        let confettiParticles = [];
+        const confettiColors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
+
+
+        // --- Event Listeners ---
+        messageButton.addEventListener('click', () => { messageBox.style.display = 'none'; });
+        joinGameButton.addEventListener('click', handleJoinGame);
+
+        async function handleJoinGame() {
+            localPlayerName = nameInput.value.trim();
+            if (!localPlayerName) {
+                alert("Please enter your name."); // Using alert here as it's pre-game UI
+                return;
             }
-            if (adContainer) {
-                adContainer.remove();
+            nameEntryModal.style.display = 'none';
+            gameContainer.style.display = 'block';
+            
+            try {
+                if (auth.currentUser) {
+                    localPlayerAuthId = auth.currentUser.uid;
+                    await setupGameSession();
+                } else if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                    // onAuthStateChanged will handle the rest
+                } else {
+                    await signInAnonymously(auth);
+                    // onAuthStateChanged will handle the rest
+                }
+            } catch (error) {
+                console.error("Error signing in:", error);
+                showMessage("Error connecting to game services. Please refresh.");
             }
-            if (adText) {
-                adText.remove();
+        }
+        
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                localPlayerAuthId = user.uid;
+                if (localPlayerName) { // If name was already entered
+                    await setupGameSession();
+                }
+            } else {
+                console.log("User signed out or no user.");
+                localPlayerAuthId = null;
+                // Potentially show name entry again or a disconnected message
             }
-            if (videoAds) {
-                videoAds.remove();
+        });
+
+
+        async function setupGameSession() {
+            if (!localPlayerAuthId || !localPlayerName) return;
+
+            statusElement.textContent = "Connecting to game...";
+            try {
+                const gameSnap = await getDoc(gameDocRef);
+                let players = gameSnap.exists() ? gameSnap.data().players || {} : {};
+                let playerIds = gameSnap.exists() ? gameSnap.data().playerIds || {} : {};
+                
+                // Check if player is already in game (e.g. refresh)
+                if (playerIds.white === localPlayerAuthId) localPlayerColor = 'white';
+                else if (playerIds.black === localPlayerAuthId) localPlayerColor = 'black';
+                else { // New player or player not assigned
+                    if (!players.white && !playerIds.white) {
+                        localPlayerColor = 'white';
+                        players.white = localPlayerName;
+                        playerIds.white = localPlayerAuthId;
+                    } else if (!players.black && !playerIds.black) {
+                        localPlayerColor = 'black';
+                        players.black = localPlayerName;
+                        playerIds.black = localPlayerAuthId;
+                    } else {
+                        // Game is full, or player is joining as spectator (not fully implemented)
+                        showMessage("Game is currently full. You are spectating.");
+                        statusElement.textContent = "Spectating.";
+                        // No color assigned, will just listen
+                    }
+                }
+                
+                localPlayerNameSpan.textContent = localPlayerName;
+                localPlayerColorSpan.textContent = localPlayerColor || "Spectator";
+
+                if (!gameSnap.exists() && localPlayerColor) { // First player creates the game
+                    const initialBoardState = setupInitialBoardState(); // Get initial piece data
+                    const initialGameData = {
+                        boardState: initialBoardState.board, // Serialized board
+                        piecesData: initialBoardState.pieces, // { pieceId: {type, color, row, col, hasMoved} }
+                        currentPlayer: 'white',
+                        players: players,
+                        playerIds: playerIds,
+                        gameOver: false,
+                        winner: null,
+                        lastMoveTimestamp: serverTimestamp()
+                    };
+                    await setDoc(gameDocRef, initialGameData);
+                } else if (localPlayerColor && (!playerIds[localPlayerColor] || playerIds[localPlayerColor] !== localPlayerAuthId)) { 
+                    // Player assigned a color, update Firestore if they weren't there or ID changed
+                    await updateDoc(gameDocRef, {
+                        [`players.${localPlayerColor}`]: localPlayerName,
+                        [`playerIds.${localPlayerColor}`]: localPlayerAuthId
+                    });
+                }
+
+                initThreeJS(); // Initialize Three.js scene now
+                listenToGameUpdates();
+
+            } catch (error) {
+                console.error("Error setting up game session:", error);
+                showMessage("Failed to join game. Please try again.");
+            }
+        }
+        
+        function listenToGameUpdates() {
+            if (unsubscribeGameListener) unsubscribeGameListener(); // Stop previous listener
+            unsubscribeGameListener = onSnapshot(gameDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    gameData = docSnap.data();
+                    gameOver = gameData.gameOver; // Update local gameOver state
+                    updateLocalBoardFromFirestore(gameData.boardState, gameData.piecesData);
+                    updateTurnInfo();
+                    
+                    if (gameData.gameOver && gameData.winner) {
+                        if (gameData.winner === 'draw') {
+                             statusElement.textContent = "Stalemate! The game is a draw.";
+                             showMessage("Stalemate! It's a draw.");
+                        } else {
+                            const winnerName = gameData.players[gameData.winner] || gameData.winner;
+                            statusElement.textContent = `Checkmate! ${winnerName} wins!`;
+                            showMessage(`Checkmate! ${winnerName} wins!`);
+                            if ((localPlayerColor && gameData.winner === localPlayerColor) || (gameData.players[gameData.winner] === localPlayerName)) {
+                                triggerConfetti();
+                            }
+                        }
+                    } else if (gameData.check && gameData.checkedPlayer) {
+                         if (gameData.checkedPlayer === localPlayerColor || (gameData.players[gameData.checkedPlayer] === localPlayerName)) {
+                            statusElement.textContent = `Your King is in Check!`;
+                            showMessage(`Your King is in Check!`);
+                         } else {
+                            statusElement.textContent = `${gameData.players[gameData.checkedPlayer] || gameData.checkedPlayer}'s King is in Check!`;
+                         }
+                    }
+
+                } else {
+                    // Game document doesn't exist, might happen if deleted or first time
+                    statusElement.textContent = "Waiting for game to start...";
+                }
+            });
+        }
+
+        function updateLocalBoardFromFirestore(firestoreBoardState, firestorePiecesData) {
+            if (!scene) return; // Scene not initialized yet
+
+            // Clear existing pieces from scene and local chessPieces map
+            for (const pieceId in chessPieces) {
+                scene.remove(chessPieces[pieceId]);
+                disposePiece(chessPieces[pieceId]);
+            }
+            chessPieces = {}; // Reset local piece store
+
+            // Rebuild boardState (local representation for path checking, etc.)
+            boardState = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null));
+
+            if (firestorePiecesData) {
+                for (const pieceId in firestorePiecesData) {
+                    const data = firestorePiecesData[pieceId];
+                    let piece3D;
+                    // Recreate the 3D piece object
+                    if (data.type === 'pawn') piece3D = createPawn(data.color);
+                    else if (data.type === 'rook') piece3D = createRook(data.color);
+                    else if (data.type === 'knight') piece3D = createKnight(data.color);
+                    else if (data.type === 'bishop') piece3D = createBishop(data.color);
+                    else if (data.type === 'queen') piece3D = createQueen(data.color);
+                    else if (data.type === 'king') piece3D = createKing(data.color);
+                    
+                    if (piece3D) {
+                        piece3D.userData = { ...data, id: pieceId }; // Store all data including original ID
+                        const pieceY = piece3D.userData.totalHeight ? piece3D.userData.totalHeight / 2 + pieceElevation : squareSize * 0.5 + pieceElevation;
+                        piece3D.position.set(
+                            (data.col - boardSize / 2 + 0.5) * squareSize,
+                            pieceY,
+                            (data.row - boardSize / 2 + 0.5) * squareSize
+                        );
+                        if (data.color === 'black' && data.type !== 'pawn') piece3D.rotation.y = Math.PI;
+
+                        scene.add(piece3D);
+                        chessPieces[pieceId] = piece3D;
+                        if (isValidSquare(data.row, data.col)) {
+                           boardState[data.row][data.col] = { piece: piece3D, ...data }; // Populate local boardState
+                        }
+                    }
+                }
+            }
+             // Update camera POV if it hasn't been set or if player color changed
+            if (localPlayerColor && (!camera.userData.povSet || camera.userData.playerColor !== localPlayerColor)) {
+                setCameraForPlayer(localPlayerColor);
+            }
+        }
+        
+        function setCameraForPlayer(playerColor) {
+            if (!camera) return;
+            if (playerColor === 'white') {
+                camera.position.set(0, 90, 90);
+            } else if (playerColor === 'black') {
+                camera.position.set(0, 90, -90); // View from black's side
+            }
+            camera.lookAt(0, 0, 0);
+            if (controls) controls.update();
+            camera.userData.povSet = true;
+            camera.userData.playerColor = playerColor;
+        }
+
+
+        function updateTurnInfo() {
+            if (gameData.gameOver) {
+                // Message handled by gameOver logic in onSnapshot
+                return;
+            }
+            if (gameData.currentPlayer) {
+                const currentPlayerName = gameData.players?.[gameData.currentPlayer] || gameData.currentPlayer;
+                turnInfoElement.textContent = `${currentPlayerName}'s Turn (${gameData.currentPlayer})`;
+                if (gameData.currentPlayer === localPlayerColor) {
+                    statusElement.textContent = "Your turn. Select a piece.";
+                } else {
+                    statusElement.textContent = `Waiting for ${currentPlayerName}...`;
+                }
+            } else {
+                turnInfoElement.textContent = "Loading...";
             }
         }
 
-        // Run the removeAds function periodically
-        setInterval(removeAds, 1000);
 
-        // Ensure ads are removed after navigating to a new video
-        document.addEventListener('yt-navigate-finish', () => {
-            setInterval(removeAds, 1000);  // Ensure ads are removed for new videos
-        });
+        function initThreeJS() {
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0x667788);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
+            // Camera position will be set by setCameraForPlayer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            gameContainer.appendChild(renderer.domElement); // Append to gameContainer
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); 
+            directionalLight.position.set(60, 120, 70); directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048; directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 50; directionalLight.shadow.camera.far = 300;
+            directionalLight.shadow.camera.left = -100; directionalLight.shadow.camera.right = 100;
+            directionalLight.shadow.camera.top = 100; directionalLight.shadow.camera.bottom = -100;
+            scene.add(directionalLight);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; controls.dampingFactor = 0.05; controls.screenSpacePanning = false;
+            controls.minDistance = 30; controls.maxDistance = 250; controls.maxPolarAngle = Math.PI / 2 - 0.03; 
+            raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
+            createChessboard(); // Creates visual board, pieces are added from Firestore data
+            
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+            animate(); // Start animation loop
+        }
+
+
+        function createChessboard() { /* ... same as before ... */ 
+            const squareGeo = new THREE.BoxGeometry(squareSize, 1, squareSize);
+            for (let i = 0; i < boardSize; i++) {
+                boardSquares[i] = [];
+                for (let j = 0; j < boardSize; j++) {
+                    const isLightSquare = (i + j) % 2 === 0;
+                    const squareMat = new THREE.MeshStandardMaterial({ color: isLightSquare ? squareColors.light : squareColors.dark, metalness: 0.2, roughness: 0.8 });
+                    const square = new THREE.Mesh(squareGeo, squareMat);
+                    square.position.set((j - boardSize / 2 + 0.5) * squareSize, 0, (i - boardSize / 2 + 0.5) * squareSize);
+                    square.receiveShadow = true;
+                    square.userData = { type: 'square', row: i, col: j, originalColor: squareMat.color.getHex() };
+                    scene.add(square); boardSquares[i][j] = square;
+                }
+            }
+        }
+
+        // --- Piece Creation Functions (same as before, ensure they return group with userData.totalHeight) ---
+        function createPawn(color) { /* ... same as before ... */ 
+            const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.5, roughness: 0.4 });
+            const baseRadius = squareSize * 0.22; const midRadius = squareSize * 0.18; const headRadius = squareSize * 0.2;
+            const baseHeight = squareSize * 0.15; const stemHeight = squareSize * 0.3;
+            const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius, baseHeight, 24); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
+            const stemGeo = new THREE.CylinderGeometry(midRadius, baseRadius * 0.8, stemHeight, 24); const stem = new THREE.Mesh(stemGeo, material); stem.position.y = baseHeight / 2 + stemHeight / 2; stem.castShadow = true; group.add(stem);
+            const headGeo = new THREE.SphereGeometry(headRadius, 24, 16); const head = new THREE.Mesh(headGeo, material); head.position.y = baseHeight / 2 + stemHeight + headRadius * 0.7; head.castShadow = true; group.add(head);
+            group.userData = { type: 'pawn', color: color, totalHeight: baseHeight + stemHeight + headRadius * 1.4 }; return group;
+        }
+        function createRook(color) { /* ... same as before ... */ 
+            const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.6, roughness: 0.3 });
+            const baseRadius = squareSize * 0.3; const midRadius = squareSize * 0.25; const topRadius = squareSize * 0.28;
+            const baseHeight = squareSize * 0.2; const shaftHeight = squareSize * 0.5; const topHeight = squareSize * 0.25; const crenellationHeight = squareSize * 0.2; const crenellationWidth = squareSize * 0.15;
+            const baseGeo = new THREE.CylinderGeometry(baseRadius * 1.1, baseRadius, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
+            const shaftGeo = new THREE.CylinderGeometry(midRadius, midRadius, shaftHeight, 32); const shaft = new THREE.Mesh(shaftGeo, material); shaft.position.y = baseHeight / 2 + shaftHeight / 2; shaft.castShadow = true; group.add(shaft);
+            const topGeo_ = new THREE.CylinderGeometry(topRadius, topRadius * 0.9, topHeight, 32); const top_ = new THREE.Mesh(topGeo_, material); top_.position.y = baseHeight / 2 + shaftHeight + topHeight / 2; top_.castShadow = true; group.add(top_);
+            const numCrenellations = 6; for (let i = 0; i < numCrenellations; i++) { const angle = (i / numCrenellations) * Math.PI * 2; const crenGeo = new THREE.BoxGeometry(crenellationWidth, crenellationHeight, crenellationWidth * 0.8); const cren = new THREE.Mesh(crenGeo, material); cren.position.set( Math.cos(angle) * (topRadius - crenellationWidth * 0.3), baseHeight / 2 + shaftHeight + topHeight + crenellationHeight / 2 - 0.05, Math.sin(angle) * (topRadius - crenellationWidth * 0.3)); cren.lookAt(0, cren.position.y, 0); cren.rotation.y += Math.PI / 2; cren.castShadow = true; group.add(cren); }
+            group.userData = { type: 'rook', color: color, hasMoved: false, totalHeight: baseHeight + shaftHeight + topHeight + crenellationHeight }; return group;
+        }
+        function createKnight(color) { /* ... same as before ... */
+            const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.5, roughness: 0.4 });
+            const baseWidth = squareSize * 0.35; const baseHeight = squareSize * 0.2; const bodyHeight = squareSize * 0.4; const bodyWidth = squareSize * 0.25; const bodyDepth = squareSize * 0.3; const neckRadius = squareSize * 0.1; const neckHeight = squareSize * 0.3; const headLength = squareSize * 0.4; const headWidth = squareSize * 0.2; const headHeightVal = squareSize * 0.25;
+            const baseGeo = new THREE.CylinderGeometry(baseWidth, baseWidth*0.8, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
+            const bodyGeo = new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth); const body = new THREE.Mesh(bodyGeo, material); body.position.y = baseHeight/2 + bodyHeight/2; body.rotation.y = Math.PI / 12; body.castShadow = true; group.add(body);
+            const neckGeo = new THREE.CylinderGeometry(neckRadius, neckRadius * 0.8, neckHeight, 16); const neck = new THREE.Mesh(neckGeo, material); neck.position.set(bodyWidth * 0.1, baseHeight/2 + bodyHeight + neckHeight * 0.4, bodyDepth * 0.1); neck.rotation.z = Math.PI / 6; neck.rotation.x = -Math.PI / 12; neck.castShadow = true; group.add(neck);
+            const headGeo = new THREE.BoxGeometry(headWidth, headHeightVal, headLength); const head = new THREE.Mesh(headGeo, material); head.position.set( neck.position.x + Math.sin(neck.rotation.z) * neckHeight * 0.5, neck.position.y + Math.cos(neck.rotation.z) * neckHeight * 0.5 - headHeightVal*0.1, neck.position.z + headLength * 0.3 ); head.rotation.z = Math.PI / 5; head.castShadow = true; group.add(head);
+            for(let i=0; i<3; i++){ const maneGeo = new THREE.BoxGeometry(squareSize*0.05, squareSize*0.15, squareSize*0.05); const manePart = new THREE.Mesh(maneGeo, material); manePart.position.set( neck.position.x - Math.sin(neck.rotation.z) * (neckHeight * 0.2 * i), neck.position.y + Math.cos(neck.rotation.z) * (neckHeight * 0.2 * i) + squareSize*0.07, neck.position.z - squareSize*0.05); manePart.rotation.z = Math.PI / 6; group.add(manePart); }
+            group.userData = { type: 'knight', color: color, totalHeight: baseHeight + bodyHeight + neckHeight }; return group;
+        }
+        function createBishop(color) { /* ... same as before ... */ 
+            const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.5, roughness: 0.4 });
+            const baseRadius = squareSize * 0.28; const midRadius = squareSize * 0.2; const headRadius = squareSize * 0.22; const baseHeight = squareSize * 0.2; const stemHeight = squareSize * 0.5; const headHeight = squareSize * 0.4;
+            const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius * 0.9, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
+            const stemGeo = new THREE.CylinderGeometry(midRadius * 0.8, midRadius, stemHeight, 32); const stem = new THREE.Mesh(stemGeo, material); stem.position.y = baseHeight / 2 + stemHeight / 2; stem.castShadow = true; group.add(stem);
+            const mitreGeo = new THREE.ConeGeometry(headRadius, headHeight, 32); const mitre = new THREE.Mesh(mitreGeo, material); mitre.position.y = baseHeight / 2 + stemHeight + headHeight / 2; mitre.castShadow = true; group.add(mitre);
+            const topSphereGeo = new THREE.SphereGeometry(squareSize * 0.07, 16, 16); const topSphere = new THREE.Mesh(topSphereGeo, material); topSphere.position.y = baseHeight / 2 + stemHeight + headHeight + squareSize * 0.03; topSphere.castShadow = true; group.add(topSphere);
+            group.userData = { type: 'bishop', color: color, totalHeight: baseHeight + stemHeight + headHeight + squareSize * 0.07 }; return group;
+        }
+        function createQueen(color) { /* ... same as before ... */ 
+            const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.7, roughness: 0.2 });
+            const baseRadius = squareSize * 0.32; const midSectionRadius = squareSize * 0.22; const crownBaseRadius = squareSize * 0.28; const baseHeight = squareSize * 0.25; const stemHeight = squareSize * 0.4; const crownBaseHeight = squareSize * 0.15; const crownPointHeight = squareSize * 0.25;
+            const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius * 0.85, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
+            const stemGeo = new THREE.CylinderGeometry(midSectionRadius * 0.8, midSectionRadius, stemHeight, 32); const stem = new THREE.Mesh(stemGeo, material); stem.position.y = baseHeight / 2 + stemHeight / 2; stem.castShadow = true; group.add(stem);
+            const crownBaseGeo_ = new THREE.CylinderGeometry(crownBaseRadius, crownBaseRadius * 1.1, crownBaseHeight, 32); const crownBase_ = new THREE.Mesh(crownBaseGeo_, material); crownBase_.position.y = baseHeight / 2 + stemHeight + crownBaseHeight / 2; crownBase_.castShadow = true; group.add(crownBase_);
+            const numCrownPoints = 7; for (let i = 0; i < numCrownPoints; i++) { const angle = (i / numCrownPoints) * Math.PI * 2; const pointGeo = new THREE.ConeGeometry(squareSize * 0.06, crownPointHeight, 8); const point = new THREE.Mesh(pointGeo, material); point.position.set( Math.cos(angle) * (crownBaseRadius * 0.9), baseHeight / 2 + stemHeight + crownBaseHeight + crownPointHeight * 0.4, Math.sin(angle) * (crownBaseRadius * 0.9)); point.castShadow = true; group.add(point); }
+            const jewelGeo = new THREE.SphereGeometry(squareSize * 0.1, 16, 16); const jewel = new THREE.Mesh(jewelGeo, material); jewel.position.y = baseHeight / 2 + stemHeight + crownBaseHeight + crownPointHeight * 0.6; jewel.castShadow = true; group.add(jewel);
+            group.userData = { type: 'queen', color: color, totalHeight: baseHeight + stemHeight + crownBaseHeight + crownPointHeight }; return group;
+        }
+        function createKing(color) { /* ... same as before ... */ 
+            const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.7, roughness: 0.2 });
+            const baseRadius = squareSize * 0.33; const midSectionRadius = squareSize * 0.25; const topSectionRadius = squareSize * 0.28; const baseHeight = squareSize * 0.3; const stemHeight = squareSize * 0.5; const topHeight = squareSize * 0.2; const crossBarLength = squareSize * 0.25; const crossBarThickness = squareSize * 0.07; const crossHeight = squareSize * 0.3;
+            const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius * 0.9, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
+            const stemGeo = new THREE.CylinderGeometry(midSectionRadius * 0.9, midSectionRadius, stemHeight, 32); const stem = new THREE.Mesh(stemGeo, material); stem.position.y = baseHeight / 2 + stemHeight / 2; stem.castShadow = true; group.add(stem);
+            const topGeo_ = new THREE.CylinderGeometry(topSectionRadius, topSectionRadius * 0.85, topHeight, 32); const topSection_ = new THREE.Mesh(topGeo_, material); topSection_.position.y = baseHeight / 2 + stemHeight + topHeight / 2; topSection_.castShadow = true; group.add(topSection_);
+            const crossYPos = baseHeight / 2 + stemHeight + topHeight + crossHeight / 2 - crossBarThickness;
+            const vBarGeo = new THREE.BoxGeometry(crossBarThickness, crossHeight, crossBarThickness); const vBar = new THREE.Mesh(vBarGeo, material); vBar.position.y = crossYPos; vBar.castShadow = true; group.add(vBar);
+            const hBarGeo = new THREE.BoxGeometry(crossBarLength, crossBarThickness, crossBarThickness); const hBar = new THREE.Mesh(hBarGeo, material); hBar.position.y = crossYPos + crossHeight * 0.1; hBar.castShadow = true; group.add(hBar);
+            group.userData = { type: 'king', color: color, hasMoved: false, totalHeight: baseHeight + stemHeight + topHeight + crossHeight }; return group;
+        }
+        // --- End Piece Creation Functions ---
+
+        function setupInitialBoardState() {
+            // Returns an object { board: serializedBoardState, pieces: piecesDataMap }
+            // This function creates the initial layout of pieces for Firestore.
+            let initialBoard = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null));
+            let initialPiecesData = {};
+            let pieceCounter = 0; // To create unique IDs
+
+            const pieceSetupOrder = [
+                { type: 'rook', count: 2 }, { type: 'knight', count: 2 }, { type: 'bishop', count: 2 }, 
+                { type: 'queen', count: 1 }, { type: 'king', count: 1 }
+            ];
+
+            function addInitialPiece(type, color, row, col, idSuffix) {
+                const pieceId = `${type}_${color[0]}_${idSuffix}`;
+                const pieceData = { type, color, row, col, hasMoved: false, id: pieceId };
+                initialBoard[row][col] = pieceId; // Store ID in board array
+                initialPiecesData[pieceId] = pieceData;
+            }
+
+            // White pieces
+            for (let i = 0; i < boardSize; i++) addInitialPiece('pawn', 'white', 6, i, i);
+            let whiteBackRankCol = 0;
+            addInitialPiece('rook', 'white', 7, whiteBackRankCol++, '0'); addInitialPiece('knight', 'white', 7, whiteBackRankCol++, '0');
+            addInitialPiece('bishop', 'white', 7, whiteBackRankCol++, '0'); addInitialPiece('queen', 'white', 7, whiteBackRankCol++, '0');
+            addInitialPiece('king', 'white', 7, whiteBackRankCol++, '0'); addInitialPiece('bishop', 'white', 7, whiteBackRankCol++, '1');
+            addInitialPiece('knight', 'white', 7, whiteBackRankCol++, '1'); addInitialPiece('rook', 'white', 7, whiteBackRankCol++, '1');
+
+            // Black pieces
+            for (let i = 0; i < boardSize; i++) addInitialPiece('pawn', 'black', 1, i, i);
+            let blackBackRankCol = 0;
+            addInitialPiece('rook', 'black', 0, blackBackRankCol++, '0'); addInitialPiece('knight', 'black', 0, blackBackRankCol++, '0');
+            addInitialPiece('bishop', 'black', 0, blackBackRankCol++, '0'); addInitialPiece('queen', 'black', 0, blackBackRankCol++, '0');
+            addInitialPiece('king', 'black', 0, blackBackRankCol++, '0'); addInitialPiece('bishop', 'black', 0, blackBackRankCol++, '1');
+            addInitialPiece('knight', 'black', 0, blackBackRankCol++, '1'); addInitialPiece('rook', 'black', 0, blackBackRankCol++, '1');
+            
+            return { board: initialBoard, pieces: initialPiecesData };
+        }
+
+
+        function onWindowResize() { /* ... same as before ... */ if(!camera || !renderer) return; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+
+        async function onMouseDown(event) {
+            event.preventDefault();
+            if (gameOver || !localPlayerColor || gameData.currentPlayer !== localPlayerColor || gameData.playerIds[localPlayerColor] !== localPlayerAuthId) {
+                 if (gameOver) showMessage("Game Over. No more moves allowed.");
+                 else if (!localPlayerColor) showMessage("You are spectating.");
+                 else if (gameData.currentPlayer !== localPlayerColor) showMessage("Not your turn.");
+                return; 
+            }
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true); 
+            if (intersects.length > 0) {
+                let clickedObjectOrGroup = intersects[0].object;
+                // Traverse up to find the piece group or the square itself
+                while (clickedObjectOrGroup.parent && !(clickedObjectOrGroup.userData.type === 'square' || clickedObjectOrGroup.userData.color)) {
+                    clickedObjectOrGroup = clickedObjectOrGroup.parent;
+                }
+                const userData = clickedObjectOrGroup.userData;
+
+                if (userData.type === 'square') { 
+                    if (selectedPiece && highlightedSquares.includes(clickedObjectOrGroup)) {
+                        const targetRow = userData.row;
+                        const targetCol = userData.col;
+                        // For castling, userData on the square mesh will have castling info
+                        if (userData.isCastling) {
+                            await makeMoveOnFirestore(selectedPiece.userData.id, targetRow, targetCol, true, userData.rook.userData.id, userData.rookTargetCol);
+                        } else {
+                            await makeMoveOnFirestore(selectedPiece.userData.id, targetRow, targetCol);
+                        }
+                    } else if (selectedPiece) statusElement.textContent = "Invalid move. Select a highlighted square or another piece.";
+                    else statusElement.textContent = "Select a piece first.";
+                } else if (userData.id && userData.color === localPlayerColor) { // Clicked on one of their own pieces (userData.id implies it's a piece from chessPieces)
+                    selectPiece(chessPieces[userData.id]); // Pass the THREE.Object3D from local map
+                } else if (userData.id && userData.color !== localPlayerColor && selectedPiece) { // Trying to capture
+                     const targetSquare = boardSquares[userData.row][userData.col];
+                     if (highlightedSquares.includes(targetSquare)) {
+                        await makeMoveOnFirestore(selectedPiece.userData.id, userData.row, userData.col);
+                     } else {
+                        statusElement.textContent = "Invalid capture target.";
+                     }
+                }
+            }
+        }
+
+        function selectPiece(piece3D) { // piece3D is the THREE.Object3D
+            if (selectedPiece) {
+                const prevSquare = boardSquares[selectedPiece.userData.row][selectedPiece.userData.col];
+                prevSquare.material.color.setHex(prevSquare.userData.originalColor);
+            }
+            clearHighlights(); 
+            selectedPiece = piece3D; // Store the actual 3D object
+            const { row, col, type, color } = piece3D.userData;
+            const currentSquare = boardSquares[row][col];
+            currentSquare.material.color.set(squareColors.selected);
+            statusElement.textContent = `Selected ${type} (${color}). Choose a destination.`;
+            highlightValidMoves(selectedPiece.userData.id); // Pass piece ID
+        }
+
+        function clearHighlights() { /* ... same as before ... */ 
+            highlightedSquares.forEach(sq => {
+                sq.material.color.setHex(sq.userData.originalColor);
+                delete sq.userData.isCastling; delete sq.userData.rook; delete sq.userData.rookTargetCol;
+            }); 
+            highlightedSquares = []; 
+        }
+        function isValidSquare(row, col) { /* ... same as before ... */ return row >= 0 && row < boardSize && col >= 0 && col < boardSize; }
+        
+        // isMoveLegal now operates on piece data (from gameData.piecesData) rather than THREE.Object3D directly
+        function isMoveLegal(pieceIdToMove, targetR, targetC, isCastlingMove = false, rookIdToMove = null, rookTargetC = null) {
+            const pieceData = { ...gameData.piecesData[pieceIdToMove] }; // Make a copy to simulate
+            const originalColor = pieceData.color;
+            const pieceOriginalRow = pieceData.row;
+            const pieceOriginalCol = pieceData.col;
+            const pieceOriginalHasMoved = pieceData.hasMoved;
+
+            // Create a temporary board state for simulation based on current gameData.boardState (IDs) and gameData.piecesData
+            let tempBoardState = gameData.boardState.map(row => row.slice()); // Deep copy of board IDs
+            let tempPiecesData = JSON.parse(JSON.stringify(gameData.piecesData)); // Deep copy of all piece data
+
+            // Simulate the move on tempPiecesData and tempBoardState
+            tempPiecesData[pieceIdToMove].row = targetR;
+            tempPiecesData[pieceIdToMove].col = targetC;
+            tempPiecesData[pieceIdToMove].hasMoved = true;
+            
+            let capturedPieceId = tempBoardState[targetR][targetC];
+            if (capturedPieceId) delete tempPiecesData[capturedPieceId]; // "Remove" captured piece from temp data
+
+            tempBoardState[targetR][targetC] = pieceIdToMove;
+            tempBoardState[pieceOriginalRow][pieceOriginalCol] = null;
+
+            if (isCastlingMove && rookIdToMove) {
+                const rookOriginalRow = tempPiecesData[rookIdToMove].row; // Rook row is same as king's
+                const rookOriginalCol = tempPiecesData[rookIdToMove].col;
+                tempPiecesData[rookIdToMove].col = rookTargetC;
+                tempPiecesData[rookIdToMove].hasMoved = true;
+                tempBoardState[rookOriginalRow][rookTargetC] = rookIdToMove;
+                tempBoardState[rookOriginalRow][rookOriginalCol] = null;
+            }
+            
+            const kingIsSafe = !isKingInCheckSimulated(originalColor, tempBoardState, tempPiecesData);
+            return kingIsSafe;
+        }
+        
+        function getPotentialMoves(pieceId) { 
+            const pieceData = gameData.piecesData[pieceId];
+            if (!pieceData) return [];
+            const { row, col, type, color } = pieceData;
+            let potentialMoves = [];
+            // Uses gameData.boardState and gameData.piecesData for current positions
+            if (type === 'pawn') {
+                const direction = color === 'white' ? -1 : 1;
+                if (isValidSquare(row + direction, col) && !gameData.boardState[row + direction][col]) potentialMoves.push({ r: row + direction, c: col });
+                if (((color === 'white' && row === 6) || (color === 'black' && row === 1)) && isValidSquare(row + 2 * direction, col) && !gameData.boardState[row + 2 * direction][col] && !gameData.boardState[row + direction][col]) potentialMoves.push({ r: row + 2 * direction, c: col });
+                for (let dc of [-1, 1]) {
+                    if (isValidSquare(row + direction, col + dc)) {
+                        const targetPieceId = gameData.boardState[row + direction][col + dc];
+                        if (targetPieceId && gameData.piecesData[targetPieceId] && gameData.piecesData[targetPieceId].color !== color) {
+                            potentialMoves.push({ r: row + direction, c: col + dc });
+                        }
+                    }
+                }
+            } else if (type === 'knight') {
+                const knightMoves = [ { dr: -2, dc: -1 }, { dr: -2, dc: 1 }, { dr: -1, dc: -2 }, { dr: -1, dc: 2 }, { dr: 1, dc: -2 }, { dr: 1, dc: 2 }, { dr: 2, dc: -1 }, { dr: 2, dc: 1 }];
+                knightMoves.forEach(move => { 
+                    const r = row + move.dr; const c = col + move.dc; 
+                    if (isValidSquare(r, c)) {
+                        const targetPieceId = gameData.boardState[r][c];
+                        if (!targetPieceId || (gameData.piecesData[targetPieceId] && gameData.piecesData[targetPieceId].color !== color)) {
+                            potentialMoves.push({ r, c });
+                        }
+                    }
+                });
+            } else if (type === 'king') {
+                const kingMoves = [ { dr: -1, dc: -1 }, { dr: -1, dc: 0 }, { dr: -1, dc: 1 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }, { dr: 1, dc: -1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }];
+                kingMoves.forEach(move => { 
+                    const r = row + move.dr; const c = col + move.dc; 
+                    if (isValidSquare(r, c)) {
+                        const targetPieceId = gameData.boardState[r][c];
+                        if (!targetPieceId || (gameData.piecesData[targetPieceId] && gameData.piecesData[targetPieceId].color !== color)) {
+                           potentialMoves.push({ r, c });
+                        }
+                    }
+                });
+            } else { // Rook, Bishop, Queen
+                let directions = [];
+                if (type === 'rook') directions = [ {dr: 0, dc: 1}, {dr: 0, dc: -1}, {dr: 1, dc: 0}, {dr: -1, dc: 0} ];
+                if (type === 'bishop') directions = [ {dr: -1, dc: -1}, {dr: -1, dc: 1}, {dr: 1, dc: -1}, {dr: 1, dc: 1} ];
+                if (type === 'queen') directions = [ {dr: 0, dc: 1}, {dr: 0, dc: -1}, {dr: 1, dc: 0}, {dr: -1, dc: 0}, {dr: -1, dc: -1}, {dr: -1, dc: 1}, {dr: 1, dc: -1}, {dr: 1, dc: 1} ];
+                directions.forEach(dir => {
+                    for (let k = 1; k < boardSize; k++) {
+                        const r = row + dir.dr * k; const c = col + dir.dc * k;
+                        if (!isValidSquare(r, c)) break;
+                        const targetPieceId = gameData.boardState[r][c];
+                        if (targetPieceId) { 
+                            if (gameData.piecesData[targetPieceId] && gameData.piecesData[targetPieceId].color !== color) potentialMoves.push({ r, c }); 
+                            break; 
+                        }
+                        potentialMoves.push({ r, c });
+                    }
+                });
+            }
+            return potentialMoves;
+        }
+
+        function highlightValidMoves(pieceId) { // pieceId is the string ID
+            const pieceData = gameData.piecesData[pieceId];
+            if (!pieceData) return;
+            const { row, col, type, color } = pieceData;
+
+            let potentialMoves = getPotentialMoves(pieceId);
+            let legalMoves = [];
+
+            potentialMoves.forEach(move => { if (isMoveLegal(pieceId, move.r, move.c)) legalMoves.push(move); });
+
+            if (type === 'king' && !pieceData.hasMoved && !isKingInCheckSimulated(color, gameData.boardState, gameData.piecesData)) {
+                const kingsideRookCol = 7;
+                const kingsideRookId = gameData.boardState[row]?.[kingsideRookCol];
+                if (kingsideRookId && gameData.piecesData[kingsideRookId]?.type === 'rook' && !gameData.piecesData[kingsideRookId]?.hasMoved) {
+                    if (!gameData.boardState[row][col + 1] && !gameData.boardState[row][col + 2]) { 
+                        if (!isSquareAttackedSimulated(row, col + 1, color === 'white' ? 'black' : 'white', gameData.boardState, gameData.piecesData) && 
+                            !isSquareAttackedSimulated(row, col + 2, color === 'white' ? 'black' : 'white', gameData.boardState, gameData.piecesData)) {
+                            if (isMoveLegal(pieceId, row, col + 2, true, kingsideRookId, col + 1)) {
+                                legalMoves.push({ r: row, c: col + 2, isCastling: true, rookId: kingsideRookId, rookTargetCol: col + 1 });
+                            }
+                        }
+                    }
+                }
+                const queensideRookCol = 0;
+                const queensideRookId = gameData.boardState[row]?.[queensideRookCol];
+                 if (queensideRookId && gameData.piecesData[queensideRookId]?.type === 'rook' && !gameData.piecesData[queensideRookId]?.hasMoved) {
+                    if (!gameData.boardState[row][col - 1] && !gameData.boardState[row][col - 2] && !gameData.boardState[row][col - 3]) { 
+                        if (!isSquareAttackedSimulated(row, col - 1, color === 'white' ? 'black' : 'white', gameData.boardState, gameData.piecesData) && 
+                            !isSquareAttackedSimulated(row, col - 2, color === 'white' ? 'black' : 'white', gameData.boardState, gameData.piecesData)) {
+                             if (isMoveLegal(pieceId, row, col - 2, true, queensideRookId, col - 1)) {
+                                legalMoves.push({ r: row, c: col - 2, isCastling: true, rookId: queensideRookId, rookTargetCol: col - 1 });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            clearHighlights(); 
+            legalMoves.forEach(move => {
+                const square = boardSquares[move.r][move.c];
+                square.material.color.set(squareColors.highlight);
+                if (move.isCastling) {
+                    square.userData.isCastling = true;
+                    square.userData.rook = chessPieces[move.rookId]; // Store the THREE.Object3D for onMouseDown
+                    square.userData.rookTargetCol = move.rookTargetCol;
+                }
+                highlightedSquares.push(square);
+            });
+
+            if (legalMoves.length === 0 && selectedPiece && selectedPiece.userData.id === pieceId) {
+                statusElement.textContent = `Selected ${type} has no legal moves.`;
+                if (isKingInCheckSimulated(color, gameData.boardState, gameData.piecesData)) statusElement.textContent += ` Your king is in check!`;
+            }
+        }
+        
+        // Simulated check functions operate on passed board/piece data, not global state
+        function findKingSimulated(color, currentBoardState, currentPiecesData) {
+            for (const pieceId in currentPiecesData) {
+                const pData = currentPiecesData[pieceId];
+                if (pData.type === 'king' && pData.color === color) return pData; // Return piece data
+            }
+            return null; 
+        }
+
+        function isSquareAttackedSimulated(targetRow, targetCol, attackerColor, currentBoardState, currentPiecesData) {
+            for (const pieceId in currentPiecesData) {
+                const pieceData = currentPiecesData[pieceId];
+                if (!pieceData || pieceData.color !== attackerColor) continue;
+                const {row: pieceRow, col: pieceCol, type: pieceType} = pieceData;
+
+                if (pieceType === 'pawn') { const direction = attackerColor === 'white' ? -1 : 1; if (targetRow === pieceRow + direction && (targetCol === pieceCol - 1 || targetCol === pieceCol + 1)) return true;
+                } else if (pieceType === 'knight') { const knightMoves = [ { dr: -2, dc: -1 }, { dr: -2, dc: 1 }, { dr: -1, dc: -2 }, { dr: -1, dc: 2 }, { dr: 1, dc: -2 }, { dr: 1, dc: 2 }, { dr: 2, dc: -1 }, { dr: 2, dc: 1 }]; for (const move of knightMoves) if (pieceRow + move.dr === targetRow && pieceCol + move.dc === targetCol) return true;
+                } else if (pieceType === 'king') { const kingMoves = [ { dr: -1, dc: -1 }, { dr: -1, dc: 0 }, { dr: -1, dc: 1 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }, { dr: 1, dc: -1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }]; for (const move of kingMoves) if (pieceRow + move.dr === targetRow && pieceCol + move.dc === targetCol) return true;
+                } else if (pieceType === 'rook' || pieceType === 'queen') { 
+                    if (pieceRow === targetRow || pieceCol === targetCol) { let pathClear = true;
+                        if (pieceRow === targetRow) { for (let c = Math.min(pieceCol, targetCol) + 1; c < Math.max(pieceCol, targetCol); c++) if (currentBoardState[pieceRow][c]) { pathClear = false; break; }
+                        } else { for (let r = Math.min(pieceRow, targetRow) + 1; r < Math.max(pieceRow, targetRow); r++) if (currentBoardState[r][pieceCol]) { pathClear = false; break; } }
+                        if (pathClear) return true;
+                    }
+                }
+                if (pieceType === 'bishop' || pieceType === 'queen') {
+                     if (Math.abs(pieceRow - targetRow) === Math.abs(pieceCol - targetCol)) { let pathClear = true; const dr = Math.sign(targetRow - pieceRow); const dc = Math.sign(targetCol - pieceCol);
+                        for (let k = 1; k < Math.abs(pieceRow - targetRow); k++) if (currentBoardState[pieceRow + dr * k][pieceCol + dc * k]) { pathClear = false; break; }
+                        if (pathClear) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function isKingInCheckSimulated(kingColor, currentBoardState, currentPiecesData) {
+            const kingData = findKingSimulated(kingColor, currentBoardState, currentPiecesData);
+            if (!kingData) return false; 
+            return isSquareAttackedSimulated(kingData.row, kingData.col, kingColor === 'white' ? 'black' : 'white', currentBoardState, currentPiecesData);
+        }
+
+        function getAllLegalMovesForPlayerSimulated(playerColor, currentBoardState, currentPiecesData) {
+            let allMoves = [];
+            for (const pieceId in currentPiecesData) {
+                const pieceData = currentPiecesData[pieceId];
+                if (pieceData.color === playerColor) {
+                    // Simplified getPotentialMoves for simulation context
+                    const potential = getPotentialMoves_Simulated(pieceId, currentBoardState, currentPiecesData);
+                    potential.forEach(move => {
+                        let isCastling = false; let rookIdForCastle = null; let rookTargetColForCastle = null;
+                        if (pieceData.type === 'king' && Math.abs(move.c - pieceData.col) === 2) { 
+                            isCastling = true;
+                            const rookOriginalCol = move.c > pieceData.col ? 7 : 0; 
+                            rookIdForCastle = currentBoardState[pieceData.row]?.[rookOriginalCol];
+                            if (!rookIdForCastle || !currentPiecesData[rookIdForCastle] || currentPiecesData[rookIdForCastle].type !== 'rook') isCastling = false;
+                            else rookTargetColForCastle = move.c > pieceData.col ? pieceData.col + 1 : pieceData.col - 1;
+                        }
+                        // Need a version of isMoveLegal that works purely on the simulated data copies
+                        // For now, this is a placeholder as full recursive simulation for isMoveLegal is complex here
+                        // The existing isMoveLegal will be called from highlightValidMoves which uses gameData
+                        // This function is primarily for checkmate/stalemate detection on current gameData
+                        if (isMoveLegal(pieceId, move.r, move.c, isCastling, rookIdForCastle, rookTargetColForCastle)) {
+                             allMoves.push({ pieceId, r: move.r, c: move.c });
+                        }
+                    });
+                }
+            }
+            return allMoves;
+        }
+        // Simplified getPotentialMoves for simulation context
+        function getPotentialMoves_Simulated(pieceId, currentBoardState, currentPiecesData) {
+            const pieceData = currentPiecesData[pieceId];
+            if (!pieceData) return [];
+            const { row, col, type, color } = pieceData;
+            let potentialMoves = [];
+
+            if (type === 'pawn') {
+                const direction = color === 'white' ? -1 : 1;
+                if (isValidSquare(row + direction, col) && !currentBoardState[row + direction][col]) potentialMoves.push({ r: row + direction, c: col });
+                if (((color === 'white' && row === 6) || (color === 'black' && row === 1)) && isValidSquare(row + 2 * direction, col) && !currentBoardState[row + 2 * direction][col] && !currentBoardState[row + direction][col]) potentialMoves.push({ r: row + 2 * direction, c: col });
+                for (let dc of [-1, 1]) {
+                    if (isValidSquare(row + direction, col + dc)) {
+                        const targetPieceId = currentBoardState[row + direction][col + dc];
+                        if (targetPieceId && currentPiecesData[targetPieceId] && currentPiecesData[targetPieceId].color !== color) {
+                            potentialMoves.push({ r: row + direction, c: col + dc });
+                        }
+                    }
+                }
+            } else if (type === 'knight') {
+                const knightMoves = [ { dr: -2, dc: -1 }, { dr: -2, dc: 1 }, { dr: -1, dc: -2 }, { dr: -1, dc: 2 }, { dr: 1, dc: -2 }, { dr: 1, dc: 2 }, { dr: 2, dc: -1 }, { dr: 2, dc: 1 }];
+                knightMoves.forEach(move => { 
+                    const r = row + move.dr; const c = col + move.dc; 
+                    if (isValidSquare(r, c)) {
+                        const targetPieceId = currentBoardState[r][c];
+                        if (!targetPieceId || (currentPiecesData[targetPieceId] && currentPiecesData[targetPieceId].color !== color)) {
+                            potentialMoves.push({ r, c });
+                        }
+                    }
+                });
+            } else if (type === 'king') {
+                const kingMoves = [ { dr: -1, dc: -1 }, { dr: -1, dc: 0 }, { dr: -1, dc: 1 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }, { dr: 1, dc: -1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }];
+                kingMoves.forEach(move => { 
+                    const r = row + move.dr; const c = col + move.dc; 
+                    if (isValidSquare(r, c)) {
+                        const targetPieceId = currentBoardState[r][c];
+                        if (!targetPieceId || (currentPiecesData[targetPieceId] && currentPiecesData[targetPieceId].color !== color)) {
+                           potentialMoves.push({ r, c });
+                        }
+                    }
+                });
+            } else { 
+                let directions = [];
+                if (type === 'rook') directions = [ {dr: 0, dc: 1}, {dr: 0, dc: -1}, {dr: 1, dc: 0}, {dr: -1, dc: 0} ];
+                if (type === 'bishop') directions = [ {dr: -1, dc: -1}, {dr: -1, dc: 1}, {dr: 1, dc: -1}, {dr: 1, dc: 1} ];
+                if (type === 'queen') directions = [ {dr: 0, dc: 1}, {dr: 0, dc: -1}, {dr: 1, dc: 0}, {dr: -1, dc: 0}, {dr: -1, dc: -1}, {dr: -1, dc: 1}, {dr: 1, dc: -1}, {dr: 1, dc: 1} ];
+                directions.forEach(dir => {
+                    for (let k = 1; k < boardSize; k++) {
+                        const r = row + dir.dr * k; const c = col + dir.dc * k;
+                        if (!isValidSquare(r, c)) break;
+                        const targetPieceId = currentBoardState[r][c];
+                        if (targetPieceId) { 
+                            if (currentPiecesData[targetPieceId] && currentPiecesData[targetPieceId].color !== color) potentialMoves.push({ r, c }); 
+                            break; 
+                        }
+                        potentialMoves.push({ r, c });
+                    }
+                });
+            }
+            return potentialMoves;
+        }
+
+
+        async function makeMoveOnFirestore(movedPieceId, newRow, newCol, isCastling = false, rookIdToMove = null, rookTargetCol = null) {
+            if (gameOver) return;
+
+            const batch = writeBatch(db);
+            const updates = {};
+
+            const pieceToMoveData = { ...gameData.piecesData[movedPieceId] };
+            const oldRow = pieceToMoveData.row;
+            const oldCol = pieceToMoveData.col;
+
+            // Update piece being moved
+            updates[`piecesData.${movedPieceId}.row`] = newRow;
+            updates[`piecesData.${movedPieceId}.col`] = newCol;
+            updates[`piecesData.${movedPieceId}.hasMoved`] = true;
+
+            // Update boardState array
+            const newBoardState = gameData.boardState.map(r => r.slice()); // Create a deep copy
+            newBoardState[oldRow][oldCol] = null;
+            newBoardState[newRow][newCol] = movedPieceId;
+
+            // Handle capture
+            const capturedPieceId = gameData.boardState[newRow][newCol];
+            if (capturedPieceId && capturedPieceId !== movedPieceId) { // Ensure not capturing self (shouldn't happen)
+                updates[`piecesData.${capturedPieceId}`] = null; // Or use FieldValue.delete() if preferred for actual deletion
+            }
+
+            if (isCastling && rookIdToMove) {
+                const rookToMoveData = { ...gameData.piecesData[rookIdToMove] };
+                const rookOldRow = rookToMoveData.row;
+                const rookOldCol = rookToMoveData.col;
+
+                updates[`piecesData.${rookIdToMove}.col`] = rookTargetCol;
+                updates[`piecesData.${rookIdToMove}.hasMoved`] = true;
+                newBoardState[rookOldRow][rookOldCol] = null;
+                newBoardState[rookOldRow][rookTargetCol] = rookIdToMove;
+            }
+            
+            updates.boardState = newBoardState;
+            updates.currentPlayer = gameData.currentPlayer === 'white' ? 'black' : 'white';
+            updates.lastMoveTimestamp = serverTimestamp();
+            updates.check = false; // Reset check status, will be re-evaluated
+            updates.checkedPlayer = null;
+
+            // Temporarily apply updates to check for checkmate/stalemate on the *next* player
+            let tempPiecesDataForCheck = JSON.parse(JSON.stringify(gameData.piecesData));
+            tempPiecesDataForCheck[movedPieceId].row = newRow;
+            tempPiecesDataForCheck[movedPieceId].col = newCol;
+            tempPiecesDataForCheck[movedPieceId].hasMoved = true;
+            if(capturedPieceId) delete tempPiecesDataForCheck[capturedPieceId];
+            if(isCastling && rookIdToMove) {
+                tempPiecesDataForCheck[rookIdToMove].col = rookTargetCol;
+                tempPiecesDataForCheck[rookIdToMove].hasMoved = true;
+            }
+
+            const nextPlayer = updates.currentPlayer;
+            const kingInCheckAfterMove = isKingInCheckSimulated(nextPlayer, newBoardState, tempPiecesDataForCheck);
+            
+            if (kingInCheckAfterMove) {
+                updates.check = true;
+                updates.checkedPlayer = nextPlayer;
+            }
+            
+            const legalMovesForNextPlayer = getAllLegalMovesForPlayerSimulated(nextPlayer, newBoardState, tempPiecesDataForCheck);
+
+            if (kingInCheckAfterMove && legalMovesForNextPlayer.length === 0) {
+                updates.gameOver = true;
+                updates.winner = gameData.currentPlayer; // The player who just moved wins
+            } else if (!kingInCheckAfterMove && legalMovesForNextPlayer.length === 0) {
+                updates.gameOver = true;
+                updates.winner = 'draw'; // Stalemate
+            }
+
+            batch.update(gameDocRef, updates);
+            try {
+                await batch.commit();
+                selectedPiece = null; // Deselect piece locally after successful Firestore commit
+                clearHighlights();    // Clear highlights locally
+            } catch (error) {
+                console.error("Error committing move to Firestore:", error);
+                showMessage("Error making move. Please try again.");
+                // Potentially revert local optimistic updates if any were made, though current model relies on onSnapshot
+            }
+        }
+        
+        function disposePiece(piece) {
+            if (!piece) return;
+            if (piece.children && piece.children.length > 0) {
+                piece.children.forEach(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) child.material.forEach(mat => mat.dispose());
+                        else child.material.dispose();
+                    }
+                });
+            } else {
+                if (piece.geometry) piece.geometry.dispose();
+                if (piece.material) {
+                    if (Array.isArray(piece.material)) piece.material.forEach(mat => mat.dispose());
+                    else piece.material.dispose();
+                }
+            }
+        }
+
+        function triggerConfetti() {
+            if (!scene) return;
+            for (let i = 0; i < 200; i++) {
+                const geometry = new THREE.SphereGeometry(0.3, 8, 8); // Smaller confetti
+                const material = new THREE.MeshBasicMaterial({ color: confettiColors[Math.floor(Math.random() * confettiColors.length)] });
+                const particle = new THREE.Mesh(geometry, material);
+
+                particle.position.set(
+                    (Math.random() - 0.5) * 150, // Wider spread
+                    100 + (Math.random() - 0.5) * 20, // Start higher
+                    (Math.random() - 0.5) * 150
+                );
+                particle.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.5,
+                    -Math.random() * 0.5 - 0.2, // Fall speed
+                    (Math.random() - 0.5) * 0.5
+                );
+                particle.life = 200 + Math.random() * 100; // Lifetime in frames
+                scene.add(particle);
+                confettiParticles.push(particle);
+            }
+        }
+        
+        function animateConfetti() {
+            for (let i = confettiParticles.length - 1; i >= 0; i--) {
+                const particle = confettiParticles[i];
+                particle.position.add(particle.velocity);
+                particle.life--;
+                if (particle.life <= 0) {
+                    scene.remove(particle);
+                    disposePiece(particle); // Dispose geometry/material
+                    confettiParticles.splice(i, 1);
+                }
+            }
+        }
+
+        function animate() { 
+            requestAnimationFrame(animate); 
+            if(controls) controls.update(); 
+            if(renderer && scene && camera) renderer.render(scene, camera); 
+            if (confettiParticles.length > 0) animateConfetti();
+        }
+
     </script>
 </body>
 </html>
