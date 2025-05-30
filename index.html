@@ -8,20 +8,19 @@
         body { margin: 0; font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #gameContainer { position: relative; width: 100%; height: 100%; }
         
-        /* Info Panel Styling - Centered */
         #infoPanel { 
             position: fixed; 
             top: 50%; 
             left: 50%;
-            transform: translate(-50%, -50%); /* Center horizontally and vertically */
+            transform: translate(-50%, -50%); 
             width: 90%; 
-            max-width: 500px; /* Slightly reduced max-width for better centering feel */
-            max-height: 90vh; /* Max height to prevent overflow */
-            overflow-y: auto; /* Allow scrolling if content exceeds max-height */
+            max-width: 500px; 
+            max-height: 90vh; 
+            overflow-y: auto; 
             z-index: 100; 
             padding: 0.75rem; 
-            background-color: rgba(26, 32, 44, 0.9); /* More opaque */
-            border-radius: 0.75rem; /* Slightly larger radius */
+            background-color: rgba(26, 32, 44, 0.9); 
+            border-radius: 0.75rem; 
             box-shadow: 0 6px 20px rgba(0,0,0,0.6);
             backdrop-filter: blur(8px); 
             border: 1px solid rgba(74, 85, 104, 0.6); 
@@ -29,22 +28,22 @@
 
         #infoPanelHeader {
             display: flex;
-            justify-content: space-between; /* This will push title left and button right */
+            justify-content: space-between; 
             align-items: center;
             margin-bottom: 0.75rem; 
             padding-bottom: 0.5rem;
             border-bottom: 1px solid rgba(74, 85, 104, 0.4);
         }
         #infoPanelHeader h1 {
-            font-size: 1.125rem; /* text-lg, slightly smaller for compact header */
+            font-size: 1.125rem; /* text-lg */
             font-weight: bold;
             color: white;
-            margin-right: 0.5rem; /* Add some space if title is long */
+            margin-right: 0.5rem; 
         }
 
-        #playerInfo { margin-bottom: 0.25rem; font-size: 0.875rem; color: #cbd5e0; }
-        #turnInfo { font-size: 1rem; color: white; margin-top: 0.25rem; } /* text-base */
-        #status { font-size: 0.875rem; color: #a0aec0; margin-top: 0.25rem; }
+        #playerInfo { margin-bottom: 0.25rem; font-size: 0.875rem; color: #cbd5e0; } 
+        #turnInfo { font-size: 1rem; color: white; margin-top: 0.25rem; } 
+        #status { font-size: 0.875rem; color: #a0aec0; margin-top: 0.25rem; } 
 
         #messageBox { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(30, 30, 30, 0.97); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.6); z-index: 1000; display: none; text-align: center; border: 1px solid #444; }
         #messageBox button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 1em; transition: background-color 0.3s; }
@@ -106,12 +105,12 @@
     <div id="gameContainer" style="display: none;">
         <div id="infoPanel" class="hidden lg:block">
             <div id="infoPanelHeader">
-                <h1>3D Chess</h1> 
+                <h1 class="text-lg font-bold text-white">3D Chess</h1> 
                 <button id="resetGameButton">Reset Game</button>
             </div>
             <div id="playerInfo">Your Name: <span id="localPlayerName"></span> (<span id="localPlayerColor"></span>)</div>
-            <p id="turnInfo" class="text-lg">Loading game...</p>
-            <p id="status" class="text-md">Waiting for players...</p>
+            <p id="turnInfo" class="text-base text-white">Loading game...</p>
+            <p id="status" class="text-sm text-gray-400">Waiting for players...</p>
         </div>
         <div id="messageBox">
             <p id="messageText"></p>
@@ -165,7 +164,6 @@
         let selectedPiece = null; 
         let highlightedSquares = []; 
         let gameOver = false; 
-        let tiltActive = false; // Flag for tilt control
 
         const pieceColors = { white: 0xdddddd, black: 0x222222 };
         const squareColors = { light: 0xDEB887, dark: 0x8B4513, highlight: 0x32CD32, selected: 0xFFD700 };
@@ -269,52 +267,6 @@
             return isSquareAttackedSimulated(kingData.row, kingData.col, kingColor === 'white' ? 'black' : 'white', currentPiecesData);
         }
 
-        // --- Tilt Controls (Experimental) ---
-        let initialBeta = null;
-        let initialGamma = null;
-        const TILT_SENSITIVITY_Y = 0.5; // Adjust for up/down camera movement
-        const TILT_SENSITIVITY_XZ = 0.7; // Adjust for left/right orbit and zoom
-
-        function handleDeviceOrientation(event) {
-            if (!tiltActive || !camera || !controls || !localPlayerColor) return;
-
-            const alpha = event.alpha; // Compass direction (0-360) - not used for now
-            const beta = event.beta;   // Front-back tilt (-180 to 180, or -90 to 90)
-            const gamma = event.gamma; // Left-right tilt (-90 to 90)
-
-            if (initialBeta === null) initialBeta = beta;
-            if (initialGamma === null) initialGamma = gamma;
-
-            // Normalize beta/gamma relative to initial orientation
-            const deltaBeta = beta - initialBeta;   // How much tilted forward/backward from start
-            const deltaGamma = gamma - initialGamma; // How much tilted left/right from start
-
-            // Define base camera position based on player color
-            const baseRadius = 90; // Base distance from center
-            let basePhi = Math.PI / 3; // Base polar angle (elevation)
-            let baseTheta = (localPlayerColor === 'black') ? Math.PI : 0; // Base azimuthal angle (horizontal orbit)
-
-            // Adjust phi (up/down view) based on beta
-            // More tilt back (negative deltaBeta for portrait) -> higher view (smaller phi)
-            // More tilt forward (positive deltaBeta) -> lower view (larger phi)
-            let newPhi = basePhi - (deltaBeta * TILT_SENSITIVITY_Y * Math.PI / 180);
-            newPhi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, newPhi)); // Clamp phi
-
-            // Adjust theta (left/right orbit) based on gamma
-            let newTheta = baseTheta - (deltaGamma * TILT_SENSITIVITY_XZ * Math.PI / 180);
-
-            // Adjust radius (zoom) based on beta for "whole board view"
-            // Tilt back more -> increase radius (zoom out)
-            let newRadius = baseRadius + (deltaBeta * TILT_SENSITIVITY_XZ * 0.5);
-            newRadius = Math.max(controls.minDistance, Math.min(controls.maxDistance, newRadius));
-
-            camera.position.setFromSphericalCoords(newRadius, newPhi, newTheta);
-            camera.lookAt(0, 0, 0); // Ensure camera always looks at the center of the board
-            // controls.update() will be called in animate loop, which might override this.
-            // For direct manipulation, we might need to disable controls temporarily or update its target.
-            // For now, let's see how this direct manipulation works with the animate loop's controls.update().
-        }
-
 
         // --- Event Listeners & Main Logic Flow ---
         messageButton.addEventListener('click', () => { if(messageBox) messageBox.style.display = 'none'; });
@@ -323,7 +275,6 @@
         if(hamburgerButton && infoPanel) { 
             hamburgerButton.addEventListener('click', () => {
                 infoPanel.classList.toggle('hidden');
-                // infoPanel.classList.toggle('block'); // Not needed if only toggling 'hidden' and relying on lg:block
             });
         }
         
@@ -357,11 +308,6 @@
                 }
                 gameInitialized = false; 
                 if(unsubscribeGameListener) { unsubscribeGameListener(); unsubscribeGameListener = null; }
-                if (tiltActive) { // Disable tilt controls on sign out
-                    window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
-                    tiltActive = false;
-                    initialBeta = null; initialGamma = null;
-                }
             }
         });
 
@@ -424,33 +370,39 @@
                 let gameIsOver = gameSnap.exists() ? gameSnap.data().gameOver : false;
                 
                 let assignedColorThisSession = null;
+                let updatesToFirestore = {}; // Collect updates
 
-                if (playerIds.white === localPlayerAuthId) assignedColorThisSession = 'white';
-                else if (playerIds.black === localPlayerAuthId) assignedColorThisSession = 'black';
-                
-                if (!assignedColorThisSession) { 
-                    if (!playerIds.white || players.white === null) { assignedColorThisSession = 'white'; }
-                    else if (!playerIds.black || players.black === null) { assignedColorThisSession = 'black'; }
+                // Check if this authId already has a color (rejoining)
+                if (playerIds.white === localPlayerAuthId) {
+                    assignedColorThisSession = 'white';
+                    if (players.white !== localPlayerName) { // Update name if it changed
+                        updatesToFirestore[`players.white`] = localPlayerName;
+                    }
+                } else if (playerIds.black === localPlayerAuthId) {
+                    assignedColorThisSession = 'black';
+                    if (players.black !== localPlayerName) { // Update name if it changed
+                        updatesToFirestore[`players.black`] = localPlayerName;
+                    }
+                } else { // Not rejoining, try to take an empty slot
+                    if (!playerIds.white) { // White slot is available
+                        assignedColorThisSession = 'white';
+                        updatesToFirestore[`players.white`] = localPlayerName;
+                        updatesToFirestore[`playerIds.white`] = localPlayerAuthId;
+                    } else if (!playerIds.black) { // Black slot is available
+                        assignedColorThisSession = 'black';
+                        updatesToFirestore[`players.black`] = localPlayerName;
+                        updatesToFirestore[`playerIds.black`] = localPlayerAuthId;
+                    }
+                    // If both slots taken by OTHERS, assignedColorThisSession remains null
                 }
-
                 localPlayerColor = assignedColorThisSession;
                 
                 if (localPlayerColor) { 
-                    players[localPlayerColor] = localPlayerName; 
-                    playerIds[localPlayerColor] = localPlayerAuthId; 
                     if(localPlayerColorSpan) localPlayerColorSpan.textContent = localPlayerColor;
                     console.log(`[setupGameSession] Player ${localPlayerName} (${localPlayerAuthId}) assigned/confirmed as ${localPlayerColor}`);
-                     // Activate tilt controls for mobile if they are a player
-                    if (window.DeviceOrientationEvent && 'ontouchstart' in window) {
-                        window.addEventListener('deviceorientation', handleDeviceOrientation, true);
-                        tiltActive = true;
-                        console.log("Device orientation listener added.");
-                    } else {
-                        console.log("Device orientation not supported or not a touch device.");
-                    }
                 } else {
                     if(localPlayerColorSpan) localPlayerColorSpan.textContent = "Spectator";
-                    showMessage("Game is currently full or error assigning color. You are spectating.");
+                    showMessage("Game is currently full. You are spectating.");
                     if(statusElement) statusElement.textContent = "Spectating.";
                     console.log(`[setupGameSession] Player ${localPlayerName} could not be assigned a color. Spectating.`);
                 }
@@ -462,21 +414,27 @@
                         const initialGameData = {
                             piecesData: initialPieceSetup, 
                             currentPlayer: 'white',
-                            players: players, 
-                            playerIds: playerIds, 
+                            players: { [localPlayerColor]: localPlayerName }, // Initialize with current player
+                            playerIds: { [localPlayerColor]: localPlayerAuthId }, // Initialize with current player ID
                             gameOver: false, winner: null, lastMoveTimestamp: serverTimestamp(),
                             check: false, checkedPlayer: null
                         };
+                        // Merge any existing player info if a reset happened while someone was joining
+                        if(gameSnap.exists() && gameSnap.data().players) {
+                            for(const color in gameSnap.data().players) {
+                                if(color !== localPlayerColor) {
+                                    initialGameData.players[color] = gameSnap.data().players[color];
+                                    initialGameData.playerIds[color] = gameSnap.data().playerIds[color];
+                                }
+                            }
+                        }
                         await setDoc(gameDocRef, initialGameData); 
                     } else if (!gameSnap.exists()){ 
                          console.log("[setupGameSession] No game document and client is spectator. Waiting for a player to create the game.");
                     }
-                } else if (localPlayerColor) { 
-                    console.log(`[setupGameSession] Updating game doc for player ${localPlayerColor}: ${localPlayerName}`);
-                    await updateDoc(gameDocRef, {
-                        [`players.${localPlayerColor}`]: localPlayerName, 
-                        [`playerIds.${localPlayerColor}`]: localPlayerAuthId
-                    });
+                } else if (Object.keys(updatesToFirestore).length > 0) { // If there are updates to player name/ID
+                    console.log(`[setupGameSession] Updating game doc with player info:`, updatesToFirestore);
+                    await updateDoc(gameDocRef, updatesToFirestore);
                 }
 
                 if (!scene) { 
@@ -499,7 +457,7 @@
         }
 
         async function handleResetGame() {
-            if (!auth.currentUser) {
+            if (!auth.currentUser) { // Anyone authenticated can trigger reset
                  showMessage("You must be connected to reset the game.");
                  return;
             }
@@ -538,30 +496,19 @@
 
                     if (localPlayerAuthId) { 
                         let playerStillInGame = false;
+                        let currentlyAssignedColor = null;
+
                         if (gameData.playerIds) {
                             if (gameData.playerIds.white === localPlayerAuthId) {
                                 playerStillInGame = true;
-                                if (localPlayerColor !== 'white') {
-                                    localPlayerColor = 'white';
-                                    if (camera) setCameraForPlayer(localPlayerColor); // Update POV if color changed
-                                    if (!tiltActive && window.DeviceOrientationEvent && 'ontouchstart' in window) {
-                                        window.addEventListener('deviceorientation', handleDeviceOrientation, true);
-                                        tiltActive = true;
-                                    }
-                                }
+                                currentlyAssignedColor = 'white';
                             } else if (gameData.playerIds.black === localPlayerAuthId) {
                                 playerStillInGame = true;
-                                if (localPlayerColor !== 'black') {
-                                    localPlayerColor = 'black'; 
-                                    if (camera) setCameraForPlayer(localPlayerColor);
-                                     if (!tiltActive && window.DeviceOrientationEvent && 'ontouchstart' in window) {
-                                        window.addEventListener('deviceorientation', handleDeviceOrientation, true);
-                                        tiltActive = true;
-                                    }
-                                }
+                                currentlyAssignedColor = 'black';
                             }
                         }
-                        if (!playerStillInGame && localPlayerColor !== null) { 
+                        
+                        if (localPlayerColor !== null && !playerStillInGame) { // Was a player, but no longer in playerIds (e.g. game reset)
                             console.log(`[onSnapshot] Player ${localPlayerName} seems to be removed or game reset. Reverting to name entry.`);
                             localPlayerColor = null; 
                             gameInitialized = false; 
@@ -570,15 +517,10 @@
                             if(gameContainer) gameContainer.style.display = 'none';
                             if(infoPanel) infoPanel.classList.add('hidden'); 
                             if(statusElement) statusElement.textContent = "Game was reset. Please enter your name to rejoin.";
-                            if (tiltActive) {
-                                window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
-                                tiltActive = false; initialBeta = null; initialGamma = null;
-                            }
                             return; 
                         }
-                        if(localPlayerColor && localPlayerColorSpan && localPlayerColorSpan.textContent !== localPlayerColor) {
-                            localPlayerColorSpan.textContent = localPlayerColor;
-                        }
+                        localPlayerColor = currentlyAssignedColor; // Update local color based on current game data
+                        if(localPlayerColor && localPlayerColorSpan) localPlayerColorSpan.textContent = localPlayerColor;
                         if(localPlayerNameSpan && localPlayerNameSpan.textContent !== localPlayerName){
                             localPlayerNameSpan.textContent = localPlayerName; 
                         }
@@ -619,10 +561,6 @@
                         if(gameContainer) gameContainer.style.display = 'none';
                         if(infoPanel) infoPanel.classList.add('hidden');
                         showMessage("Game room was closed. Please enter your name to start or join a new game.");
-                         if (tiltActive) {
-                            window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
-                            tiltActive = false; initialBeta = null; initialGamma = null;
-                        }
                     }
                 }
             }, (error) => {
@@ -666,9 +604,9 @@
                     }
                 }
             }
-            if (localPlayerColor && camera && !tiltActive) { // Only set camera if tilt is not active
+            if (localPlayerColor && camera) { 
                 setCameraForPlayer(localPlayerColor);
-            } else if (!localPlayerColor && camera && !tiltActive) { 
+            } else if (!localPlayerColor && camera ) { 
                 camera.position.set(0, 90, 90); camera.lookAt(0,0,0); if(controls) controls.update();
             }
              if (selectedPiece && !chessPieces[selectedPiece.userData.id]) { 
@@ -678,7 +616,7 @@
         }
         
         function setCameraForPlayer(playerColor) { 
-            if (!camera || tiltActive) return; // Don't interfere if tilt is active
+            if (!camera) return;
             if (playerColor === 'white') { camera.position.set(0, 90, 90); } 
             else if (playerColor === 'black') { camera.position.set(0, 90, -90); }
             camera.lookAt(0, 0, 0);
@@ -1113,12 +1051,8 @@
                 showMessage("Game Over. No more moves allowed.");
                 return;
             }
-            if (!localPlayerColor) { // Spectator
-                // Allow interaction for camera controls, but not game moves
-                // If we want to show a message for spectators trying to interact with pieces:
-                // raycast and if it's a piece/square, showMessage("You are spectating.");
-                return;
-            }
+            // Spectator check moved down, after raycasting, to allow camera control for spectators.
+            // Turn check also moved down.
 
             const canvas = renderer.domElement;
             const rect = canvas.getBoundingClientRect();
@@ -1130,6 +1064,7 @@
 
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(scene.children, true); 
+            
             if (intersects.length > 0) {
                 let clickedObjectOrGroup = intersects[0].object;
                 while (clickedObjectOrGroup.parent && !(clickedObjectOrGroup.userData.type === 'square' || clickedObjectOrGroup.userData.id)) { 
@@ -1137,12 +1072,18 @@
                 }
                 const userData = clickedObjectOrGroup.userData;
 
-                // Check if it's the player's turn IF they clicked a game element
-                if (userData.type === 'square' || userData.id) { // Clicked on a square or potential piece
+                // If the click was on a game element (piece or square)
+                if (userData.type === 'square' || userData.id) {
+                    if (!localPlayerColor) { // Spectator clicked a game element
+                        showMessage("You are spectating.");
+                        return;
+                    }
                     if (gameData.currentPlayer !== localPlayerColor || (gameData.playerIds && gameData.playerIds[localPlayerColor] !== localPlayerAuthId)) {
                         showMessage("Not your turn.");
                         return; 
                     }
+                } else { // Clicked on empty space or non-interactive element
+                    return; // Do nothing, no "not your turn" message for empty space clicks
                 }
 
 
@@ -1164,6 +1105,10 @@
                      if (highlightedSquares.includes(opponentPieceSquare)) {
                         makeMoveOnFirestore(selectedPiece.userData.id, userData.row, userData.col);
                      } else {
+                        // This case might also be "Not your turn" if trying to interact with opponent piece
+                        // but the main guard already handles that for actions.
+                        // For just clicking an opponent piece when it's not your turn to move a selected piece,
+                        // this is fine, or could also say "Not your turn".
                         if(statusElement) statusElement.textContent = "Invalid capture target.";
                      }
                 }
@@ -1214,7 +1159,7 @@
                 });
             } else {
                 if (piece.geometry) piece.geometry.dispose();
-                if (piece.material) { if (Array.isArray(piece.material)) piece.material.forEach(mat => mat.dispose()); else piece.material.dispose(); }
+                if (piece.material) { if (Array.isArray(piece.material)) piece.material.forEach(mat => mat.dispose()); else child.material.dispose(); }
             }
         }
         function triggerConfetti() { 
@@ -1237,12 +1182,7 @@
         }
         function animate() { 
             requestAnimationFrame(animate); 
-            if(controls && !tiltActive) controls.update(); // Only update controls if tilt is not active
-            else if (controls && tiltActive) {
-                // If tilt is active, OrbitControls might still try to damp/pan if user also interacts.
-                // This might need more sophisticated disabling of OrbitControls during tilt.
-                // For now, we just don't call update if tilt is handling camera.
-            }
+            if(controls) controls.update(); 
             if(renderer && scene && camera) renderer.render(scene, camera); 
             if (confettiParticles.length > 0) animateConfetti();
         }
