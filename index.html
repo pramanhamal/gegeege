@@ -8,8 +8,9 @@
         body { margin: 0; font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #gameContainer { position: relative; width: 100%; height: 100%; }
         #info { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 700px; text-align: center; z-index: 100; padding: 10px; background-color: rgba(0,0,0,0.6); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-        #controlsBar { display: flex; justify-content: center; align-items: center; margin-bottom: 5px;}
-        #playerInfo { margin-bottom: 5px; font-size: 0.9em; margin-right: 15px;}
+        /* Updated #controlsBar for better spacing */
+        #controlsBar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;}
+        #playerInfo { margin-bottom: 5px; font-size: 0.9em;} /* Removed margin-right, space-between will handle */
         #status { font-size: 1em; margin-top:5px;}
         #messageBox { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(30, 30, 30, 0.97); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.6); z-index: 1000; display: none; text-align: center; border: 1px solid #444; }
         #messageBox button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 1em; transition: background-color 0.3s; }
@@ -48,7 +49,8 @@
     <div id="gameContainer" style="display: none;">
         <div id="info">
             <div id="controlsBar">
-                <h1 class="text-2xl font-bold mr-auto">3D Chess</h1>
+                {/* Removed mr-auto from h1, space-between on parent handles it */}
+                <h1 class="text-2xl font-bold">3D Chess</h1> 
                 <button id="resetGameButton">Reset Game</button>
             </div>
             <div id="playerInfo">Your Name: <span id="localPlayerName"></span> (<span id="localPlayerColor"></span>)</div>
@@ -213,7 +215,7 @@
         // --- Event Listeners & Main Logic Flow ---
         messageButton.addEventListener('click', () => { if(messageBox) messageBox.style.display = 'none'; });
         joinGameButton.addEventListener('click', handleJoinGame);
-        if(resetGameButton) resetGameButton.addEventListener('click', handleResetGame); // Added reset listener
+        if(resetGameButton) resetGameButton.addEventListener('click', handleResetGame); 
         
         onAuthStateChanged(auth, async (user) => {
             console.log(`[onAuthStateChanged] Fired. User:`, user);
@@ -311,7 +313,7 @@
                 if (playerIds.white === localPlayerAuthId) assignedColorThisSession = 'white';
                 else if (playerIds.black === localPlayerAuthId) assignedColorThisSession = 'black';
                 
-                if (!assignedColorThisSession) { // If not already in game, try to assign
+                if (!assignedColorThisSession) { 
                     if (!playerIds.white || players.white === null) { assignedColorThisSession = 'white'; }
                     else if (!playerIds.black || players.black === null) { assignedColorThisSession = 'black'; }
                 }
@@ -330,20 +332,19 @@
                     console.log(`[setupGameSession] Player ${localPlayerName} could not be assigned a color. Spectating.`);
                 }
 
-                // Initialize or reset game if needed (e.g., no pieces data, or game was over and a player joins)
                 if ((!currentPiecesData || gameIsOver) && localPlayerColor) { 
                     console.log(`[setupGameSession] Initializing/Resetting game data with player ${localPlayerColor}: ${localPlayerName}`);
                     const initialPieceSetup = setupInitialPiecesData(); 
                     const initialGameData = {
                         piecesData: initialPieceSetup, 
                         currentPlayer: 'white',
-                        players: players, // Keep current players
-                        playerIds: playerIds, // Keep current player IDs
+                        players: players, 
+                        playerIds: playerIds, 
                         gameOver: false, winner: null, lastMoveTimestamp: serverTimestamp(),
                         check: false, checkedPlayer: null
                     };
-                    await setDoc(gameDocRef, initialGameData); // Use setDoc to overwrite/create
-                } else if (localPlayerColor) { // Game exists, just update this player's info
+                    await setDoc(gameDocRef, initialGameData); 
+                } else if (localPlayerColor) { 
                     console.log(`[setupGameSession] Updating game doc for player ${localPlayerColor}: ${localPlayerName}`);
                     await updateDoc(gameDocRef, {
                         [`players.${localPlayerColor}`]: localPlayerName, 
@@ -371,18 +372,16 @@
         }
 
         async function handleResetGame() {
-            if (!localPlayerColor) { // Only allow active players to reset
+            if (!localPlayerColor) { 
                 showMessage("Only active players can reset the game.");
                 return;
             }
             console.log(`[handleResetGame] Player ${localPlayerName} (${localPlayerColor}) is attempting to reset the game.`);
-            // Optional: Add a confirmation dialog here
-            // if (!confirm("Are you sure you want to reset the game for all players?")) return;
-
+            
             try {
                 const initialPieceSetup = setupInitialPiecesData();
-                const currentPlayers = gameData.players || {}; // Preserve existing players
-                const currentPlayerIds = gameData.playerIds || {}; // Preserve existing player IDs
+                const currentPlayers = gameData.players || {}; 
+                const currentPlayerIds = gameData.playerIds || {}; 
 
                 const resetGameData = {
                     piecesData: initialPieceSetup,
@@ -395,7 +394,7 @@
                     checkedPlayer: null,
                     lastMoveTimestamp: serverTimestamp()
                 };
-                await setDoc(gameDocRef, resetGameData); // Use setDoc to overwrite the entire game state
+                await setDoc(gameDocRef, resetGameData); 
                 showMessage("Game has been reset!");
                 console.log("[handleResetGame] Game reset successfully in Firestore.");
             } catch (error) {
@@ -554,7 +553,7 @@
             window.addEventListener('resize', onWindowResize, false); 
             if(renderer.domElement) {
                 renderer.domElement.addEventListener('mousedown', onMouseDown, false);
-                renderer.domElement.addEventListener('touchstart', onTouchStart, false); // Added touch listener
+                renderer.domElement.addEventListener('touchstart', onTouchStart, false); 
             } else {
                 console.error("Renderer DOM element not found for event listeners.");
             }
@@ -941,8 +940,15 @@
                  else if (gameData.currentPlayer !== localPlayerColor) showMessage("Not your turn.");
                 return; 
             }
-            mouse.x = (clientX / window.innerWidth) * 2 - 1; 
-            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+
+            const canvas = renderer.domElement;
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            mouse.x = (x / canvas.clientWidth) * 2 - 1; 
+            mouse.y = -(y / canvas.clientHeight) * 2 + 1;
+
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(scene.children, true); 
             if (intersects.length > 0) {
@@ -966,8 +972,10 @@
                 } else if (userData.id && userData.color === localPlayerColor) { 
                     selectPiece(chessPieces[userData.id]); 
                 } else if (userData.id && userData.color !== localPlayerColor && selectedPiece) { 
-                     const targetSquare = boardSquares[userData.row][userData.col];
-                     if (highlightedSquares.includes(targetSquare)) {
+                     // Attempting to capture
+                     // Check if the square the opponent's piece is on is a highlighted valid move
+                     const opponentPieceSquare = boardSquares[userData.row][userData.col];
+                     if (highlightedSquares.includes(opponentPieceSquare)) {
                         makeMoveOnFirestore(selectedPiece.userData.id, userData.row, userData.col);
                      } else {
                         if(statusElement) statusElement.textContent = "Invalid capture target.";
