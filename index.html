@@ -7,8 +7,9 @@
     <style>
         body { margin: 0; font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #gameContainer { position: relative; width: 100%; height: 100%; }
-        #info { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; text-align: center; z-index: 100; padding: 10px; background-color: rgba(0,0,0,0.6); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-        #playerInfo { margin-bottom: 5px; font-size: 0.9em;}
+        #info { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 700px; text-align: center; z-index: 100; padding: 10px; background-color: rgba(0,0,0,0.6); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+        #controlsBar { display: flex; justify-content: center; align-items: center; margin-bottom: 5px;}
+        #playerInfo { margin-bottom: 5px; font-size: 0.9em; margin-right: 15px;}
         #status { font-size: 1em; margin-top:5px;}
         #messageBox { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(30, 30, 30, 0.97); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.6); z-index: 1000; display: none; text-align: center; border: 1px solid #444; }
         #messageBox button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 1em; transition: background-color 0.3s; }
@@ -21,6 +22,8 @@
         #joinGameButton { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
         #joinGameButton:hover { background-color: #1e7e34; }
         .confetti { position: absolute; width: 10px; height: 10px; background-color: red; opacity: 0.7; border-radius: 50%; }
+        #resetGameButton { background-color: #dc3545; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 0.9em; }
+        #resetGameButton:hover { background-color: #c82333; }
     </style>
     <script src="https://cdn.tailwindcss.com"></script>
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -44,7 +47,10 @@
 
     <div id="gameContainer" style="display: none;">
         <div id="info">
-            <h1 class="text-2xl font-bold">3D Chess - Multiplayer</h1>
+            <div id="controlsBar">
+                <h1 class="text-2xl font-bold mr-auto">3D Chess</h1>
+                <button id="resetGameButton">Reset Game</button>
+            </div>
             <div id="playerInfo">Your Name: <span id="localPlayerName"></span> (<span id="localPlayerColor"></span>)</div>
             <p id="turnInfo" class="text-lg">Loading game...</p>
             <p id="status" class="text-md">Waiting for players...</p>
@@ -91,12 +97,12 @@
         let scene, camera, renderer, controls;
         let raycaster, mouse;
 
-        // --- Game State (local copy, synced from Firestore) ---
+        // --- Game State ---
         const boardSize = 8;
         const squareSize = 10; 
         const pieceElevation = 0.5;
         let boardSquares = []; 
-        let chessPieces = {}; // Maps pieceId to THREE.Object3D
+        let chessPieces = {}; 
         let localBoardRepresentation = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null)); 
         let gameData = {}; 
         let selectedPiece = null; 
@@ -118,6 +124,7 @@
         const gameContainer = document.getElementById('gameContainer');
         const localPlayerNameSpan = document.getElementById('localPlayerName');
         const localPlayerColorSpan = document.getElementById('localPlayerColor');
+        const resetGameButton = document.getElementById('resetGameButton');
 
         // --- Confetti ---
         let confettiParticles = [];
@@ -145,13 +152,12 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // Helper to build temporary 2D board from piecesData for simulations
         function buildTempBoardFromPiecesData(currentPiecesData) {
             let tempBoard = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null));
             if (currentPiecesData) {
                 for (const pieceId in currentPiecesData) {
                     const pData = currentPiecesData[pieceId];
-                    if (pData && isValidSquare(pData.row, pData.col)) { // isValidSquare used here
+                    if (pData && isValidSquare(pData.row, pData.col)) { 
                         tempBoard[pData.row][pData.col] = pieceId; 
                     }
                 }
@@ -207,6 +213,7 @@
         // --- Event Listeners & Main Logic Flow ---
         messageButton.addEventListener('click', () => { if(messageBox) messageBox.style.display = 'none'; });
         joinGameButton.addEventListener('click', handleJoinGame);
+        if(resetGameButton) resetGameButton.addEventListener('click', handleResetGame); // Added reset listener
         
         onAuthStateChanged(auth, async (user) => {
             console.log(`[onAuthStateChanged] Fired. User:`, user);
@@ -297,13 +304,14 @@
                 let players = gameSnap.exists() ? gameSnap.data().players || {} : {};
                 let playerIds = gameSnap.exists() ? gameSnap.data().playerIds || {} : {};
                 let currentPiecesData = gameSnap.exists() ? gameSnap.data().piecesData || null : null;
+                let gameIsOver = gameSnap.exists() ? gameSnap.data().gameOver : false;
                 
                 let assignedColorThisSession = null;
 
                 if (playerIds.white === localPlayerAuthId) assignedColorThisSession = 'white';
                 else if (playerIds.black === localPlayerAuthId) assignedColorThisSession = 'black';
                 
-                if (!assignedColorThisSession) {
+                if (!assignedColorThisSession) { // If not already in game, try to assign
                     if (!playerIds.white || players.white === null) { assignedColorThisSession = 'white'; }
                     else if (!playerIds.black || players.black === null) { assignedColorThisSession = 'black'; }
                 }
@@ -322,19 +330,20 @@
                     console.log(`[setupGameSession] Player ${localPlayerName} could not be assigned a color. Spectating.`);
                 }
 
-                if (!currentPiecesData && localPlayerColor) { 
-                    console.log(`[setupGameSession] Game doc data missing or piecesData missing, creating/resetting with player ${localPlayerColor}: ${localPlayerName}`);
+                // Initialize or reset game if needed (e.g., no pieces data, or game was over and a player joins)
+                if ((!currentPiecesData || gameIsOver) && localPlayerColor) { 
+                    console.log(`[setupGameSession] Initializing/Resetting game data with player ${localPlayerColor}: ${localPlayerName}`);
                     const initialPieceSetup = setupInitialPiecesData(); 
                     const initialGameData = {
                         piecesData: initialPieceSetup, 
                         currentPlayer: 'white',
-                        players: players, 
-                        playerIds: playerIds, 
+                        players: players, // Keep current players
+                        playerIds: playerIds, // Keep current player IDs
                         gameOver: false, winner: null, lastMoveTimestamp: serverTimestamp(),
                         check: false, checkedPlayer: null
                     };
-                    await setDoc(gameDocRef, initialGameData);
-                } else if (localPlayerColor) { 
+                    await setDoc(gameDocRef, initialGameData); // Use setDoc to overwrite/create
+                } else if (localPlayerColor) { // Game exists, just update this player's info
                     console.log(`[setupGameSession] Updating game doc for player ${localPlayerColor}: ${localPlayerName}`);
                     await updateDoc(gameDocRef, {
                         [`players.${localPlayerColor}`]: localPlayerName, 
@@ -360,6 +369,41 @@
                 if(localPlayerColorSpan) localPlayerColorSpan.textContent = "";
             }
         }
+
+        async function handleResetGame() {
+            if (!localPlayerColor) { // Only allow active players to reset
+                showMessage("Only active players can reset the game.");
+                return;
+            }
+            console.log(`[handleResetGame] Player ${localPlayerName} (${localPlayerColor}) is attempting to reset the game.`);
+            // Optional: Add a confirmation dialog here
+            // if (!confirm("Are you sure you want to reset the game for all players?")) return;
+
+            try {
+                const initialPieceSetup = setupInitialPiecesData();
+                const currentPlayers = gameData.players || {}; // Preserve existing players
+                const currentPlayerIds = gameData.playerIds || {}; // Preserve existing player IDs
+
+                const resetGameData = {
+                    piecesData: initialPieceSetup,
+                    currentPlayer: 'white',
+                    players: currentPlayers, 
+                    playerIds: currentPlayerIds,
+                    gameOver: false,
+                    winner: null,
+                    check: false,
+                    checkedPlayer: null,
+                    lastMoveTimestamp: serverTimestamp()
+                };
+                await setDoc(gameDocRef, resetGameData); // Use setDoc to overwrite the entire game state
+                showMessage("Game has been reset!");
+                console.log("[handleResetGame] Game reset successfully in Firestore.");
+            } catch (error) {
+                console.error("[handleResetGame] Error resetting game:", error);
+                showMessage("Error resetting game: " + error.message);
+            }
+        }
+
 
         function listenToGameUpdates() { 
             if (unsubscribeGameListener) unsubscribeGameListener(); 
@@ -442,7 +486,7 @@
                         if (data.color === 'black' && data.type !== 'pawn') piece3D.rotation.y = Math.PI;
                         scene.add(piece3D);
                         chessPieces[pieceId] = piece3D;
-                        if (isValidSquare(data.row, data.col)) { // isValidSquare used here
+                        if (isValidSquare(data.row, data.col)) { 
                            localBoardRepresentation[data.row][data.col] = { pieceId: pieceId, ...data }; 
                         }
                     }
@@ -507,8 +551,13 @@
             controls.minDistance = 30; controls.maxDistance = 250; controls.maxPolarAngle = Math.PI / 2 - 0.03; 
             raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
             createChessboard(); 
-            window.addEventListener('resize', onWindowResize, false); // Added event listener
-            if(renderer.domElement) renderer.domElement.addEventListener('mousedown', onMouseDown, false); else console.error("Renderer DOM element not found for mousedown listener.");
+            window.addEventListener('resize', onWindowResize, false); 
+            if(renderer.domElement) {
+                renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+                renderer.domElement.addEventListener('touchstart', onTouchStart, false); // Added touch listener
+            } else {
+                console.error("Renderer DOM element not found for event listeners.");
+            }
             if(!gameData.gameOver) animate(); 
         }
 
@@ -884,15 +933,16 @@
             }
         }
         
-        function onMouseDown(event) { 
-            event.preventDefault();
+        // Refactored interaction handler
+        function handleInteraction(clientX, clientY) {
             if (gameOver || !localPlayerColor || gameData.currentPlayer !== localPlayerColor || (gameData.playerIds && gameData.playerIds[localPlayerColor] !== localPlayerAuthId) ) {
                  if (gameOver) showMessage("Game Over. No more moves allowed.");
                  else if (!localPlayerColor) showMessage("You are spectating.");
                  else if (gameData.currentPlayer !== localPlayerColor) showMessage("Not your turn.");
                 return; 
             }
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            mouse.x = (clientX / window.innerWidth) * 2 - 1; 
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(scene.children, true); 
             if (intersects.length > 0) {
@@ -923,6 +973,18 @@
                         if(statusElement) statusElement.textContent = "Invalid capture target.";
                      }
                 }
+            }
+        }
+
+        function onMouseDown(event) { 
+            event.preventDefault();
+            handleInteraction(event.clientX, event.clientY);
+        }
+
+        function onTouchStart(event) {
+            event.preventDefault();
+            if (event.touches.length > 0) {
+                handleInteraction(event.touches[0].clientX, event.touches[0].clientY);
             }
         }
         
