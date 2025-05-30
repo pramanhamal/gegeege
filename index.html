@@ -8,9 +8,9 @@
         body { margin: 0; font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #gameContainer { position: relative; width: 100%; height: 100%; }
         #info { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 700px; text-align: center; z-index: 100; padding: 10px; background-color: rgba(0,0,0,0.6); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-        /* Updated #controlsBar for better spacing */
-        #controlsBar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;}
-        #playerInfo { margin-bottom: 5px; font-size: 0.9em;} /* Removed margin-right, space-between will handle */
+        /* Updated #controlsBar for better spacing with mr-auto on h1 */
+        #controlsBar { display: flex; align-items: center; margin-bottom: 5px;}
+        #playerInfo { margin-bottom: 5px; font-size: 0.9em;}
         #status { font-size: 1em; margin-top:5px;}
         #messageBox { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(30, 30, 30, 0.97); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.6); z-index: 1000; display: none; text-align: center; border: 1px solid #444; }
         #messageBox button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 1em; transition: background-color 0.3s; }
@@ -23,7 +23,7 @@
         #joinGameButton { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
         #joinGameButton:hover { background-color: #1e7e34; }
         .confetti { position: absolute; width: 10px; height: 10px; background-color: red; opacity: 0.7; border-radius: 50%; }
-        #resetGameButton { background-color: #dc3545; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 0.9em; }
+        #resetGameButton { background-color: #dc3545; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 0.9em; flex-shrink: 0; /* Prevent button from shrinking */ }
         #resetGameButton:hover { background-color: #c82333; }
     </style>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -49,8 +49,8 @@
     <div id="gameContainer" style="display: none;">
         <div id="info">
             <div id="controlsBar">
-                {/* Removed mr-auto from h1, space-between on parent handles it */}
-                <h1 class="text-2xl font-bold">3D Chess</h1> 
+                {/* Added mr-auto to h1 for layout control */}
+                <h1 class="text-2xl font-bold mr-auto">3D Chess</h1> 
                 <button id="resetGameButton">Reset Game</button>
             </div>
             <div id="playerInfo">Your Name: <span id="localPlayerName"></span> (<span id="localPlayerColor"></span>)</div>
@@ -234,19 +234,18 @@
             } else { 
                 console.log("[onAuthStateChanged] No user / signed out.");
                 localPlayerAuthId = null;
-                if (gameInitialized && localPlayerColor) { 
+                if (gameInitialized) { // Only fully reset UI if game was initialized
                     localPlayerName = ''; 
                     localPlayerColor = null;
                     if(localPlayerNameSpan) localPlayerNameSpan.textContent = ""; 
                     if(localPlayerColorSpan) localPlayerColorSpan.textContent = "";
+                    if(nameEntryModal) nameEntryModal.style.display = 'flex';
+                    if(gameContainer) gameContainer.style.display = 'none'; 
+                    if(turnInfoElement) turnInfoElement.textContent = "Disconnected.";
+                    if(statusElement) statusElement.textContent = "Please enter your name to join.";
                 }
                 gameInitialized = false; 
-                
-                if(nameEntryModal) nameEntryModal.style.display = 'flex';
-                if(gameContainer) gameContainer.style.display = 'none';
                 if(unsubscribeGameListener) { unsubscribeGameListener(); unsubscribeGameListener = null; }
-                if(turnInfoElement) turnInfoElement.textContent = "Disconnected.";
-                if(statusElement) statusElement.textContent = "Please enter your name to join.";
             }
         });
 
@@ -332,19 +331,26 @@
                     console.log(`[setupGameSession] Player ${localPlayerName} could not be assigned a color. Spectating.`);
                 }
 
-                if ((!currentPiecesData || gameIsOver) && localPlayerColor) { 
-                    console.log(`[setupGameSession] Initializing/Resetting game data with player ${localPlayerColor}: ${localPlayerName}`);
-                    const initialPieceSetup = setupInitialPiecesData(); 
-                    const initialGameData = {
-                        piecesData: initialPieceSetup, 
-                        currentPlayer: 'white',
-                        players: players, 
-                        playerIds: playerIds, 
-                        gameOver: false, winner: null, lastMoveTimestamp: serverTimestamp(),
-                        check: false, checkedPlayer: null
-                    };
-                    await setDoc(gameDocRef, initialGameData); 
-                } else if (localPlayerColor) { 
+                // If game doc doesn't exist, or piecesData is missing, or game was over, initialize/reset.
+                // This logic now also handles the case after a "full reset" where players/playerIds are empty.
+                if (!gameSnap.exists() || !currentPiecesData || gameIsOver) { 
+                    if (localPlayerColor) { // Only allow an active player (first one in) to initialize
+                        console.log(`[setupGameSession] Initializing/Resetting game data with player ${localPlayerColor}: ${localPlayerName}`);
+                        const initialPieceSetup = setupInitialPiecesData(); 
+                        const initialGameData = {
+                            piecesData: initialPieceSetup, 
+                            currentPlayer: 'white',
+                            players: players, 
+                            playerIds: playerIds, 
+                            gameOver: false, winner: null, lastMoveTimestamp: serverTimestamp(),
+                            check: false, checkedPlayer: null
+                        };
+                        await setDoc(gameDocRef, initialGameData); 
+                    } else if (!gameSnap.exists()){ // No game doc and this client is a spectator
+                         console.log("[setupGameSession] No game document and client is spectator. Waiting for a player to create the game.");
+                         // Do nothing, wait for game to be created by a player.
+                    }
+                } else if (localPlayerColor) { // Game exists and is ongoing, just update this player's info
                     console.log(`[setupGameSession] Updating game doc for player ${localPlayerColor}: ${localPlayerName}`);
                     await updateDoc(gameDocRef, {
                         [`players.${localPlayerColor}`]: localPlayerName, 
@@ -372,22 +378,22 @@
         }
 
         async function handleResetGame() {
-            if (!localPlayerColor) { 
-                showMessage("Only active players can reset the game.");
-                return;
+            // Allow any authenticated user to attempt a reset, Firestore rules should ultimately control permission if needed.
+            // Or, add a check: if (!localPlayerColor && !(gameData.players && (gameData.players.white === localPlayerName || gameData.players.black === localPlayerName))) {
+            if (!auth.currentUser) {
+                 showMessage("You must be connected to reset the game.");
+                 return;
             }
-            console.log(`[handleResetGame] Player ${localPlayerName} (${localPlayerColor}) is attempting to reset the game.`);
+            console.log(`[handleResetGame] Player ${localPlayerName} (${localPlayerAuthId}) is attempting to reset the game.`);
             
             try {
                 const initialPieceSetup = setupInitialPiecesData();
-                const currentPlayers = gameData.players || {}; 
-                const currentPlayerIds = gameData.playerIds || {}; 
-
+                // When resetting, clear player assignments. New players will fill slots.
                 const resetGameData = {
                     piecesData: initialPieceSetup,
                     currentPlayer: 'white',
-                    players: currentPlayers, 
-                    playerIds: currentPlayerIds,
+                    players: {}, // Clear players
+                    playerIds: {}, // Clear player IDs
                     gameOver: false,
                     winner: null,
                     check: false,
@@ -395,8 +401,9 @@
                     lastMoveTimestamp: serverTimestamp()
                 };
                 await setDoc(gameDocRef, resetGameData); 
-                showMessage("Game has been reset!");
-                console.log("[handleResetGame] Game reset successfully in Firestore.");
+                showMessage("Game has been reset! All players will need to rejoin by entering their name.");
+                console.log("[handleResetGame] Game reset successfully in Firestore. Players cleared.");
+                // Client-side will react via onSnapshot to show name entry modal.
             } catch (error) {
                 console.error("[handleResetGame] Error resetting game:", error);
                 showMessage("Error resetting game: " + error.message);
@@ -411,14 +418,39 @@
                 console.log("[onSnapshot] Game data received from Firestore:", docSnap.exists() ? docSnap.data() : "No document");
                 if (docSnap.exists()) {
                     gameData = docSnap.data();
-                    if (!gameData.piecesData) { 
-                        console.warn("[onSnapshot] piecesData missing from Firestore document. Game might need reset or initialization.");
-                        if(statusElement) statusElement.textContent = "Game data incomplete. Waiting for initialization...";
-                        if (localPlayerColor && !gameData.gameOver) { 
-                             if(gameData.currentPlayer === localPlayerColor && Object.keys(gameData.players || {}).length <= 1) {
-                                console.log("Attempting to re-initialize game data as first player.");
-                             }
+
+                    // Check if this player needs to be kicked back to name entry (e.g., after a reset)
+                    if (localPlayerAuthId) { // Only if user is authenticated
+                        let playerStillInGame = false;
+                        if (gameData.playerIds) {
+                            if (gameData.playerIds.white === localPlayerAuthId) {
+                                playerStillInGame = true;
+                                if (localPlayerColor !== 'white') localPlayerColor = 'white'; // Correct local color if mismatched
+                            } else if (gameData.playerIds.black === localPlayerAuthId) {
+                                playerStillInGame = true;
+                                if (localPlayerColor !== 'black') localPlayerColor = 'black'; // Correct local color
+                            }
                         }
+                        if (!playerStillInGame && localPlayerColor !== null) { // Was a player, but no longer in playerIds
+                            console.log(`[onSnapshot] Player ${localPlayerName} seems to be removed or game reset. Reverting to name entry.`);
+                            localPlayerColor = null; // Critical to unassign
+                            gameInitialized = false; // Allow re-setup
+                            if(localPlayerColorSpan) localPlayerColorSpan.textContent = "";
+                            if(nameEntryModal) nameEntryModal.style.display = 'flex';
+                            if(gameContainer) gameContainer.style.display = 'none';
+                            if(statusElement) statusElement.textContent = "Game was reset. Please enter your name to rejoin.";
+                            return; // Stop processing this snapshot for this client
+                        }
+                         // Update local player color display if it was just assigned/confirmed
+                        if(localPlayerColor && localPlayerColorSpan && localPlayerColorSpan.textContent !== localPlayerColor) {
+                            localPlayerColorSpan.textContent = localPlayerColor;
+                        }
+                    }
+
+
+                    if (!gameData.piecesData) { 
+                        console.warn("[onSnapshot] piecesData missing from Firestore document.");
+                        if(statusElement) statusElement.textContent = "Game data incomplete. Waiting for initialization...";
                         return; 
                     }
                     gameOver = gameData.gameOver; 
@@ -441,13 +473,15 @@
                             if(statusElement) statusElement.textContent = message;
                          }
                     }
-                } else {
-                    if(statusElement) statusElement.textContent = "Game data not found. Waiting for game to start...";
-                     if (!localPlayerColor && localPlayerName) { 
+                } else { // Document does not exist (e.g. after a manual delete or very first load)
+                    if(statusElement) statusElement.textContent = "Game room not found. Waiting for a player to start a game...";
+                    // If local player had a name, and game was initialized, this means game was deleted.
+                    if (localPlayerName && gameInitialized) {
+                        gameInitialized = false; // Reset flag
+                        localPlayerColor = null; // Unassign color
                         if(nameEntryModal) nameEntryModal.style.display = 'flex';
                         if(gameContainer) gameContainer.style.display = 'none';
-                        showMessage("Game room closed or not found. Please try joining again.");
-                        gameInitialized = false;
+                        showMessage("Game room was closed. Please enter your name to start or join a new game.");
                     }
                 }
             }, (error) => {
@@ -972,8 +1006,6 @@
                 } else if (userData.id && userData.color === localPlayerColor) { 
                     selectPiece(chessPieces[userData.id]); 
                 } else if (userData.id && userData.color !== localPlayerColor && selectedPiece) { 
-                     // Attempting to capture
-                     // Check if the square the opponent's piece is on is a highlighted valid move
                      const opponentPieceSquare = boardSquares[userData.row][userData.col];
                      if (highlightedSquares.includes(opponentPieceSquare)) {
                         makeMoveOnFirestore(selectedPiece.userData.id, userData.row, userData.col);
