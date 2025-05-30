@@ -60,7 +60,7 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"; // Added deleteField
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebase Setup ---
         // IMPORTANT: Replace this with your actual Firebase config object!
@@ -87,7 +87,6 @@
         let unsubscribeGameListener = null;
         let gameInitialized = false;
 
-
         // --- Scene Setup ---
         let scene, camera, renderer, controls;
         let raycaster, mouse;
@@ -98,7 +97,7 @@
         const pieceElevation = 0.5;
         let boardSquares = []; 
         let chessPieces = {}; // Maps pieceId to THREE.Object3D
-        let localBoardRepresentation = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null)); // Client-side 2D array for logic
+        let localBoardRepresentation = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null)); 
         let gameData = {}; 
         let selectedPiece = null; 
         let highlightedSquares = []; 
@@ -124,7 +123,11 @@
         let confettiParticles = [];
         const confettiColors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
 
-        // --- Robust showMessage ---
+        // --- Core Utility Functions ---
+        function isValidSquare(row, col) {
+            return row >= 0 && row < boardSize && col >= 0 && col < boardSize;
+        }
+
         function showMessage(text) {
             if (messageText && messageBox) {
                 messageText.textContent = text;
@@ -135,7 +138,66 @@
             }
         }
 
-        // --- Event Listeners ---
+        // Helper to build temporary 2D board from piecesData for simulations
+        function buildTempBoardFromPiecesData(currentPiecesData) {
+            let tempBoard = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null));
+            if (currentPiecesData) {
+                for (const pieceId in currentPiecesData) {
+                    const pData = currentPiecesData[pieceId];
+                    if (pData && isValidSquare(pData.row, pData.col)) { // isValidSquare used here
+                        tempBoard[pData.row][pData.col] = pieceId; 
+                    }
+                }
+            }
+            return tempBoard;
+        }
+        
+        function findKingSimulated(color, currentPiecesData) { 
+            if (!currentPiecesData) return null;
+            for (const pieceId in currentPiecesData) {
+                const pData = currentPiecesData[pieceId];
+                if (pData && pData.type === 'king' && pData.color === color) return pData; 
+            }
+            return null; 
+        }
+
+        function isSquareAttackedSimulated(targetRow, targetCol, attackerColor, currentPiecesData) {
+            if (!currentPiecesData) return false;
+            const tempBoardForPathing = buildTempBoardFromPiecesData(currentPiecesData);
+
+            for (const pieceId in currentPiecesData) {
+                const pieceData = currentPiecesData[pieceId];
+                if (!pieceData || pieceData.color !== attackerColor) continue;
+                const {row: pieceRow, col: pieceCol, type: pieceType} = pieceData;
+
+                if (pieceType === 'pawn') { const direction = attackerColor === 'white' ? -1 : 1; if (targetRow === pieceRow + direction && (targetCol === pieceCol - 1 || targetCol === pieceCol + 1)) return true;
+                } else if (pieceType === 'knight') { const knightMoves = [ { dr: -2, dc: -1 }, { dr: -2, dc: 1 }, { dr: -1, dc: -2 }, { dr: -1, dc: 2 }, { dr: 1, dc: -2 }, { dr: 1, dc: 2 }, { dr: 2, dc: -1 }, { dr: 2, dc: 1 }]; for (const move of knightMoves) if (pieceRow + move.dr === targetRow && pieceCol + move.dc === targetCol) return true;
+                } else if (pieceType === 'king') { const kingMoves = [ { dr: -1, dc: -1 }, { dr: -1, dc: 0 }, { dr: -1, dc: 1 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }, { dr: 1, dc: -1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }]; for (const move of kingMoves) if (pieceRow + move.dr === targetRow && pieceCol + move.dc === targetCol) return true;
+                } else if (pieceType === 'rook' || pieceType === 'queen') { 
+                    if (pieceRow === targetRow || pieceCol === targetCol) { let pathClear = true;
+                        if (pieceRow === targetRow) { for (let c = Math.min(pieceCol, targetCol) + 1; c < Math.max(pieceCol, targetCol); c++) if (tempBoardForPathing[pieceRow][c]) { pathClear = false; break; }
+                        } else { for (let r = Math.min(pieceRow, targetRow) + 1; r < Math.max(pieceRow, targetRow); r++) if (tempBoardForPathing[r][pieceCol]) { pathClear = false; break; } }
+                        if (pathClear) return true;
+                    }
+                }
+                if (pieceType === 'bishop' || pieceType === 'queen') {
+                     if (Math.abs(pieceRow - targetRow) === Math.abs(pieceCol - targetCol)) { let pathClear = true; const dr = Math.sign(targetRow - pieceRow); const dc = Math.sign(targetCol - pieceCol);
+                        for (let k = 1; k < Math.abs(pieceRow - targetRow); k++) if (tempBoardForPathing[pieceRow + dr * k][pieceCol + dc * k]) { pathClear = false; break; }
+                        if (pathClear) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function isKingInCheckSimulated(kingColor, currentPiecesData) { 
+            const kingData = findKingSimulated(kingColor, currentPiecesData);
+            if (!kingData) { console.warn(`isKingInCheckSimulated: King data not found for ${kingColor}`); return false; }
+            return isSquareAttackedSimulated(kingData.row, kingData.col, kingColor === 'white' ? 'black' : 'white', currentPiecesData);
+        }
+
+
+        // --- Event Listeners & Main Logic Flow ---
         messageButton.addEventListener('click', () => { if(messageBox) messageBox.style.display = 'none'; });
         joinGameButton.addEventListener('click', handleJoinGame);
         
@@ -144,7 +206,7 @@
             if (user) {
                 localPlayerAuthId = user.uid;
                 console.log(`[onAuthStateChanged] localPlayerAuthId set to: '${localPlayerAuthId}'`);
-                if (localPlayerName && !gameInitialized) { // Name entered, ready to setup
+                if (localPlayerName && !gameInitialized) { 
                     console.log(`[onAuthStateChanged] User authenticated and localPlayerName ('${localPlayerName}') is set. Proceeding to setupGameSession.`);
                     await setupGameSession();
                 } else if (gameInitialized) {
@@ -153,10 +215,9 @@
                 } else {
                     console.warn(`[onAuthStateChanged] User authenticated, but localPlayerName ('${localPlayerName}') is not set yet OR game already initialized.`);
                 }
-            } else { // No user / signed out
+            } else { 
                 console.log("[onAuthStateChanged] No user / signed out.");
                 localPlayerAuthId = null;
-                // Only fully reset if the game was actually initialized and player was active
                 if (gameInitialized && localPlayerColor) { 
                     localPlayerName = ''; 
                     localPlayerColor = null;
@@ -254,7 +315,7 @@
                     console.log(`[setupGameSession] Player ${localPlayerName} could not be assigned a color. Spectating.`);
                 }
 
-                if (!currentPiecesData && localPlayerColor) { // Game needs to be initialized with pieces
+                if (!currentPiecesData && localPlayerColor) { 
                     console.log(`[setupGameSession] Game doc data missing or piecesData missing, creating/resetting with player ${localPlayerColor}: ${localPlayerName}`);
                     const initialPieceSetup = setupInitialPiecesData(); 
                     const initialGameData = {
@@ -300,22 +361,18 @@
                 console.log("[onSnapshot] Game data received from Firestore:", docSnap.exists() ? docSnap.data() : "No document");
                 if (docSnap.exists()) {
                     gameData = docSnap.data();
-                    if (!gameData.piecesData) { // If piecesData is missing, game is in a bad state or not fully initialized
+                    if (!gameData.piecesData) { 
                         console.warn("[onSnapshot] piecesData missing from Firestore document. Game might need reset or initialization.");
                         if(statusElement) statusElement.textContent = "Game data incomplete. Waiting for initialization...";
-                        // Optionally trigger a re-initialization if this client is supposed to be a player
-                        if (localPlayerColor && !gameData.gameOver) { // Attempt to re-init if this player is active and game not over
-                             // Be careful not to cause init loops. Maybe only if first player.
+                        if (localPlayerColor && !gameData.gameOver) { 
                              if(gameData.currentPlayer === localPlayerColor && Object.keys(gameData.players || {}).length <= 1) {
                                 console.log("Attempting to re-initialize game data as first player.");
-                                // This is risky, better to ensure setupGameSession correctly writes initial data.
-                                // For now, rely on setupGameSession to handle initial creation.
                              }
                         }
                         return; 
                     }
                     gameOver = gameData.gameOver; 
-                    updateLocalBoardFromFirestore(gameData.piecesData); // Only pass piecesData
+                    updateLocalBoardFromFirestore(gameData.piecesData); 
                     updateTurnInfo();
                     
                     if (gameData.gameOver && gameData.winner) {
@@ -357,7 +414,7 @@
                 disposePiece(chessPieces[pieceId]);
             }
             chessPieces = {}; 
-            localBoardRepresentation = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null)); // Reset local board
+            localBoardRepresentation = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null)); 
 
             if (firestorePiecesData) {
                 for (const pieceId in firestorePiecesData) {
@@ -378,7 +435,7 @@
                         if (data.color === 'black' && data.type !== 'pawn') piece3D.rotation.y = Math.PI;
                         scene.add(piece3D);
                         chessPieces[pieceId] = piece3D;
-                        if (isValidSquare(data.row, data.col)) {
+                        if (isValidSquare(data.row, data.col)) { // isValidSquare used here
                            localBoardRepresentation[data.row][data.col] = { pieceId: pieceId, ...data }; 
                         }
                     }
@@ -389,13 +446,13 @@
             } else if (!localPlayerColor && camera) { 
                 camera.position.set(0, 90, 90); camera.lookAt(0,0,0); if(controls) controls.update();
             }
-             if (selectedPiece && !chessPieces[selectedPiece.userData.id]) { // If selected piece was captured/removed
+             if (selectedPiece && !chessPieces[selectedPiece.userData.id]) { 
                 selectedPiece = null;
                 clearHighlights();
             }
         }
         
-        function setCameraForPlayer(playerColor) { /* ... same as before ... */ 
+        function setCameraForPlayer(playerColor) { 
             if (!camera) return;
             if (playerColor === 'white') { camera.position.set(0, 90, 90); } 
             else if (playerColor === 'black') { camera.position.set(0, 90, -90); }
@@ -404,7 +461,7 @@
             camera.userData.povSet = true; camera.userData.playerColor = playerColor;
         }
 
-        function updateTurnInfo() { /* ... same as before, ensure gameData.players is checked ... */ 
+        function updateTurnInfo() { 
             if (!gameData || Object.keys(gameData).length === 0) {
                 if(turnInfoElement) turnInfoElement.textContent = "Loading game data..."; return;
             }
@@ -422,7 +479,7 @@
             }
         }
 
-        function initThreeJS() { /* ... same as before ... */ 
+        function initThreeJS() { 
             scene = new THREE.Scene(); scene.background = new THREE.Color(0x667788);
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
             camera.position.set(0,90,90); camera.lookAt(0,0,0);
@@ -448,8 +505,23 @@
             if(!gameData.gameOver) animate(); 
         }
 
-        // --- Piece Creation Functions (ensure they have userData.totalHeight) ---
-        function createPawn(color) { /* ... same as before ... */ 
+        function createChessboard() {
+            const squareGeo = new THREE.BoxGeometry(squareSize, 1, squareSize);
+            for (let i = 0; i < boardSize; i++) {
+                boardSquares[i] = [];
+                for (let j = 0; j < boardSize; j++) {
+                    const isLightSquare = (i + j) % 2 === 0;
+                    const squareMat = new THREE.MeshStandardMaterial({ color: isLightSquare ? squareColors.light : squareColors.dark, metalness: 0.2, roughness: 0.8 });
+                    const square = new THREE.Mesh(squareGeo, squareMat);
+                    square.position.set((j - boardSize / 2 + 0.5) * squareSize, 0, (i - boardSize / 2 + 0.5) * squareSize);
+                    square.receiveShadow = true;
+                    square.userData = { type: 'square', row: i, col: j, originalColor: squareMat.color.getHex() };
+                    scene.add(square); boardSquares[i][j] = square;
+                }
+            }
+        }
+        
+        function createPawn(color) { 
             const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.5, roughness: 0.4 });
             const baseRadius = squareSize * 0.22; const midRadius = squareSize * 0.18; const headRadius = squareSize * 0.2;
             const baseHeight = squareSize * 0.15; const stemHeight = squareSize * 0.3;
@@ -458,7 +530,7 @@
             const headGeo = new THREE.SphereGeometry(headRadius, 24, 16); const head = new THREE.Mesh(headGeo, material); head.position.y = baseHeight / 2 + stemHeight + headRadius * 0.7; head.castShadow = true; group.add(head);
             group.userData = { type: 'pawn', color: color, totalHeight: baseHeight + stemHeight + headRadius * 1.4 }; return group;
         }
-        function createRook(color) { /* ... same as before ... */ 
+        function createRook(color) { 
             const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.6, roughness: 0.3 });
             const baseRadius = squareSize * 0.3; const midRadius = squareSize * 0.25; const topRadius = squareSize * 0.28;
             const baseHeight = squareSize * 0.2; const shaftHeight = squareSize * 0.5; const topHeight = squareSize * 0.25; const crenellationHeight = squareSize * 0.2; const crenellationWidth = squareSize * 0.15;
@@ -468,7 +540,7 @@
             const numCrenellations = 6; for (let i = 0; i < numCrenellations; i++) { const angle = (i / numCrenellations) * Math.PI * 2; const crenGeo = new THREE.BoxGeometry(crenellationWidth, crenellationHeight, crenellationWidth * 0.8); const cren = new THREE.Mesh(crenGeo, material); cren.position.set( Math.cos(angle) * (topRadius - crenellationWidth * 0.3), baseHeight / 2 + shaftHeight + topHeight + crenellationHeight / 2 - 0.05, Math.sin(angle) * (topRadius - crenellationWidth * 0.3)); cren.lookAt(0, cren.position.y, 0); cren.rotation.y += Math.PI / 2; cren.castShadow = true; group.add(cren); }
             group.userData = { type: 'rook', color: color, hasMoved: false, totalHeight: baseHeight + shaftHeight + topHeight + crenellationHeight }; return group;
         }
-        function createKnight(color) { /* ... same as before ... */
+        function createKnight(color) {
             const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.5, roughness: 0.4 });
             const baseWidth = squareSize * 0.35; const baseHeight = squareSize * 0.2; const bodyHeight = squareSize * 0.4; const bodyWidth = squareSize * 0.25; const bodyDepth = squareSize * 0.3; const neckRadius = squareSize * 0.1; const neckHeight = squareSize * 0.3; const headLength = squareSize * 0.4; const headWidth = squareSize * 0.2; const headHeightVal = squareSize * 0.25;
             const baseGeo = new THREE.CylinderGeometry(baseWidth, baseWidth*0.8, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
@@ -478,7 +550,7 @@
             for(let i=0; i<3; i++){ const maneGeo = new THREE.BoxGeometry(squareSize*0.05, squareSize*0.15, squareSize*0.05); const manePart = new THREE.Mesh(maneGeo, material); manePart.position.set( neck.position.x - Math.sin(neck.rotation.z) * (neckHeight * 0.2 * i), neck.position.y + Math.cos(neck.rotation.z) * (neckHeight * 0.2 * i) + squareSize*0.07, neck.position.z - squareSize*0.05); manePart.rotation.z = Math.PI / 6; group.add(manePart); }
             group.userData = { type: 'knight', color: color, totalHeight: baseHeight + bodyHeight + neckHeight }; return group;
         }
-        function createBishop(color) { /* ... same as before ... */ 
+        function createBishop(color) { 
             const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.5, roughness: 0.4 });
             const baseRadius = squareSize * 0.28; const midRadius = squareSize * 0.2; const headRadius = squareSize * 0.22; const baseHeight = squareSize * 0.2; const stemHeight = squareSize * 0.5; const headHeight = squareSize * 0.4;
             const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius * 0.9, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
@@ -487,7 +559,7 @@
             const topSphereGeo = new THREE.SphereGeometry(squareSize * 0.07, 16, 16); const topSphere = new THREE.Mesh(topSphereGeo, material); topSphere.position.y = baseHeight / 2 + stemHeight + headHeight + squareSize * 0.03; topSphere.castShadow = true; group.add(topSphere);
             group.userData = { type: 'bishop', color: color, totalHeight: baseHeight + stemHeight + headHeight + squareSize * 0.07 }; return group;
         }
-        function createQueen(color) { /* ... same as before ... */ 
+        function createQueen(color) { 
             const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.7, roughness: 0.2 });
             const baseRadius = squareSize * 0.32; const midSectionRadius = squareSize * 0.22; const crownBaseRadius = squareSize * 0.28; const baseHeight = squareSize * 0.25; const stemHeight = squareSize * 0.4; const crownBaseHeight = squareSize * 0.15; const crownPointHeight = squareSize * 0.25;
             const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius * 0.85, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
@@ -497,7 +569,7 @@
             const jewelGeo = new THREE.SphereGeometry(squareSize * 0.1, 16, 16); const jewel = new THREE.Mesh(jewelGeo, material); jewel.position.y = baseHeight / 2 + stemHeight + crownBaseHeight + crownPointHeight * 0.6; jewel.castShadow = true; group.add(jewel);
             group.userData = { type: 'queen', color: color, totalHeight: baseHeight + stemHeight + crownBaseHeight + crownPointHeight }; return group;
         }
-        function createKing(color) { /* ... same as before ... */ 
+        function createKing(color) { 
             const group = new THREE.Group(); const material = new THREE.MeshStandardMaterial({ color: pieceColors[color], metalness: 0.7, roughness: 0.2 });
             const baseRadius = squareSize * 0.33; const midSectionRadius = squareSize * 0.25; const topSectionRadius = squareSize * 0.28; const baseHeight = squareSize * 0.3; const stemHeight = squareSize * 0.5; const topHeight = squareSize * 0.2; const crossBarLength = squareSize * 0.25; const crossBarThickness = squareSize * 0.07; const crossHeight = squareSize * 0.3;
             const baseGeo = new THREE.CylinderGeometry(baseRadius, baseRadius * 0.9, baseHeight, 32); const base = new THREE.Mesh(baseGeo, material); base.castShadow = true; group.add(base);
@@ -509,73 +581,46 @@
             group.userData = { type: 'king', color: color, hasMoved: false, totalHeight: baseHeight + stemHeight + topHeight + crossHeight }; return group;
         }
         
-        function setupInitialPiecesData() { // Renamed from setupInitialBoardState
+        function setupInitialPiecesData() { 
             let initialPiecesData = {};
             function addInitialPiece(type, color, row, col, idSuffix, piecesMap) { 
                const pieceId = `${type}_${color[0]}_${idSuffix}`;
                piecesMap[pieceId] = { type, color, row, col, hasMoved: false, id: pieceId };
             }
-            // White pieces
             for (let i = 0; i < boardSize; i++) addInitialPiece('pawn', 'white', 6, i, i, initialPiecesData);
             let wCol = 0; 
             addInitialPiece('rook', 'white', 7, wCol++, '0', initialPiecesData); addInitialPiece('knight', 'white', 7, wCol++, '0', initialPiecesData); 
             addInitialPiece('bishop', 'white', 7, wCol++, '0', initialPiecesData); addInitialPiece('queen', 'white', 7, wCol++, '0', initialPiecesData);
             addInitialPiece('king', 'white', 7, wCol++, '0', initialPiecesData); addInitialPiece('bishop', 'white', 7, wCol++, '1', initialPiecesData);
             addInitialPiece('knight', 'white', 7, wCol++, '1', initialPiecesData); addInitialPiece('rook', 'white', 7, wCol++, '1', initialPiecesData);
-            // Black pieces
             for (let i = 0; i < boardSize; i++) addInitialPiece('pawn', 'black', 1, i, i, initialPiecesData);
             let bCol = 0; 
             addInitialPiece('rook', 'black', 0, bCol++, '0', initialPiecesData); addInitialPiece('knight', 'black', 0, bCol++, '0', initialPiecesData);
             addInitialPiece('bishop', 'black', 0, bCol++, '0', initialPiecesData); addInitialPiece('queen', 'black', 0, bCol++, '0', initialPiecesData);
             addInitialPiece('king', 'black', 0, bCol++, '0', initialPiecesData); addInitialPiece('bishop', 'black', 0, bCol++, '1', initialPiecesData);
             addInitialPiece('knight', 'black', 0, bCol++, '1', initialPiecesData); addInitialPiece('rook', 'black', 0, bCol++, '1', initialPiecesData);
-            
-            return initialPiecesData; // Only return piecesData map
-        }
-
-        // Helper to build temporary 2D board from piecesData for simulations
-        function buildTempBoardFromPiecesData(currentPiecesData) {
-            let tempBoard = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null));
-            if (currentPiecesData) {
-                for (const pieceId in currentPiecesData) {
-                    const pData = currentPiecesData[pieceId];
-                    if (pData && isValidSquare(pData.row, pData.col)) {
-                        tempBoard[pData.row][pData.col] = pieceId; // Store pieceId for occupancy check
-                    }
-                }
-            }
-            return tempBoard;
+            return initialPiecesData; 
         }
         
         function isMoveLegal(pieceIdToMove, targetR, targetC, isCastlingMove = false, rookIdToMove = null, rookTargetC = null) {
-            const currentPiecesData = gameData.piecesData; // Base on current actual game state
+            const currentPiecesData = gameData.piecesData; 
             const pieceData = currentPiecesData[pieceIdToMove];
             if (!pieceData) { console.error(`isMoveLegal: Piece data for ${pieceIdToMove} not found.`); return false;}
-
             const originalColor = pieceData.color;
-            
-            // Create temporary deep copies for simulation
             let tempPiecesData = JSON.parse(JSON.stringify(currentPiecesData));
-            
-            // Simulate the move on tempPiecesData
             tempPiecesData[pieceIdToMove].row = targetR;
             tempPiecesData[pieceIdToMove].col = targetC;
             tempPiecesData[pieceIdToMove].hasMoved = true;
-            
-            // Simulate capture: find pieceId at targetR, targetC from original data
-            // To do this accurately, we need to build a temp board from original currentPiecesData
             let originalTempBoard = buildTempBoardFromPiecesData(currentPiecesData);
             const capturedPieceId = originalTempBoard[targetR][targetC];
             if (capturedPieceId && capturedPieceId !== pieceIdToMove) {
-                 delete tempPiecesData[capturedPieceId]; // "Remove" captured piece
+                 delete tempPiecesData[capturedPieceId]; 
             }
-
             if (isCastlingMove && rookIdToMove) {
                 tempPiecesData[rookIdToMove].col = rookTargetC;
                 tempPiecesData[rookIdToMove].hasMoved = true;
             }
-            
-            const kingIsSafe = !isKingInCheckSimulated(originalColor, tempPiecesData); // Pass only tempPiecesData
+            const kingIsSafe = !isKingInCheckSimulated(originalColor, tempPiecesData); 
             return kingIsSafe;
         }
         
@@ -584,7 +629,7 @@
             if (!pieceData) return [];
             const { row, col, type, color } = pieceData;
             let potentialMoves = [];
-            const currentBoardForPotential = buildTempBoardFromPiecesData(gameData.piecesData); // Use current game state
+            const currentBoardForPotential = buildTempBoardFromPiecesData(gameData.piecesData); 
 
             if (type === 'pawn') {
                 const direction = color === 'white' ? -1 : 1;
@@ -620,7 +665,7 @@
                         }
                     }
                 });
-            } else { // Rook, Bishop, Queen
+            } else { 
                 let directions = [];
                 if (type === 'rook') directions = [ {dr: 0, dc: 1}, {dr: 0, dc: -1}, {dr: 1, dc: 0}, {dr: -1, dc: 0} ];
                 if (type === 'bishop') directions = [ {dr: -1, dc: -1}, {dr: -1, dc: 1}, {dr: 1, dc: -1}, {dr: 1, dc: 1} ];
@@ -697,63 +742,15 @@
             }
         }
         
-        function findKingSimulated(color, currentPiecesData) { // Operates on piecesData map
-            if (!currentPiecesData) return null;
-            for (const pieceId in currentPiecesData) {
-                const pData = currentPiecesData[pieceId];
-                if (pData && pData.type === 'king' && pData.color === color) return pData; 
-            }
-            return null; 
-        }
-
-        function isSquareAttackedSimulated(targetRow, targetCol, attackerColor, currentPiecesData) {
-            if (!currentPiecesData) return false;
-            const tempBoardForPathing = buildTempBoardFromPiecesData(currentPiecesData);
-
-            for (const pieceId in currentPiecesData) {
-                const pieceData = currentPiecesData[pieceId];
-                if (!pieceData || pieceData.color !== attackerColor) continue;
-                const {row: pieceRow, col: pieceCol, type: pieceType} = pieceData;
-
-                if (pieceType === 'pawn') { const direction = attackerColor === 'white' ? -1 : 1; if (targetRow === pieceRow + direction && (targetCol === pieceCol - 1 || targetCol === pieceCol + 1)) return true;
-                } else if (pieceType === 'knight') { const knightMoves = [ { dr: -2, dc: -1 }, { dr: -2, dc: 1 }, { dr: -1, dc: -2 }, { dr: -1, dc: 2 }, { dr: 1, dc: -2 }, { dr: 1, dc: 2 }, { dr: 2, dc: -1 }, { dr: 2, dc: 1 }]; for (const move of knightMoves) if (pieceRow + move.dr === targetRow && pieceCol + move.dc === targetCol) return true;
-                } else if (pieceType === 'king') { const kingMoves = [ { dr: -1, dc: -1 }, { dr: -1, dc: 0 }, { dr: -1, dc: 1 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }, { dr: 1, dc: -1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }]; for (const move of kingMoves) if (pieceRow + move.dr === targetRow && pieceCol + move.dc === targetCol) return true;
-                } else if (pieceType === 'rook' || pieceType === 'queen') { 
-                    if (pieceRow === targetRow || pieceCol === targetCol) { let pathClear = true;
-                        if (pieceRow === targetRow) { for (let c = Math.min(pieceCol, targetCol) + 1; c < Math.max(pieceCol, targetCol); c++) if (tempBoardForPathing[pieceRow][c]) { pathClear = false; break; }
-                        } else { for (let r = Math.min(pieceRow, targetRow) + 1; r < Math.max(pieceRow, targetRow); r++) if (tempBoardForPathing[r][pieceCol]) { pathClear = false; break; } }
-                        if (pathClear) return true;
-                    }
-                }
-                if (pieceType === 'bishop' || pieceType === 'queen') {
-                     if (Math.abs(pieceRow - targetRow) === Math.abs(pieceCol - targetCol)) { let pathClear = true; const dr = Math.sign(targetRow - pieceRow); const dc = Math.sign(targetCol - pieceCol);
-                        for (let k = 1; k < Math.abs(pieceRow - targetRow); k++) if (tempBoardForPathing[pieceRow + dr * k][pieceCol + dc * k]) { pathClear = false; break; }
-                        if (pathClear) return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        function isKingInCheckSimulated(kingColor, currentPiecesData) { // Operates on piecesData
-            const kingData = findKingSimulated(kingColor, currentPiecesData);
-            if (!kingData) { console.warn(`isKingInCheckSimulated: King data not found for ${kingColor}`); return false; }
-            return isSquareAttackedSimulated(kingData.row, kingData.col, kingColor === 'white' ? 'black' : 'white', currentPiecesData);
-        }
-
         function getAllLegalMovesForPlayerSimulated(playerColor, currentPiecesData) {
             if (!currentPiecesData) return [];
             let allMoves = [];
             for (const pieceId in currentPiecesData) {
                 const pieceData = currentPiecesData[pieceId];
                 if (pieceData && pieceData.color === playerColor) {
-                    const potential = getPotentialMoves_Simulated_For_GetAll(pieceId, currentPiecesData); // Use a specific getPotential for this context
+                    const potential = getPotentialMoves_Simulated_For_GetAll(pieceId, currentPiecesData); 
                     potential.forEach(move => {
                         let isCastling = false; let rookIdForCastle = null; let rookTargetColForCastle = null;
-                         // For isMoveLegal, we need to reconstruct the "current live game state" piece references, not simulated one.
-                         // This part is tricky. isMoveLegal expects current gameData.
-                         // For checkmate/stalemate, isMoveLegal should operate on the state *after* the opponent's last move.
-                         // So gameData.piecesData is correct here for isMoveLegal's first param.
                         if (pieceData.type === 'king' && Math.abs(move.c - pieceData.col) === 2) { 
                             isCastling = true;
                             const tempBoardForCastle = buildTempBoardFromPiecesData(currentPiecesData);
@@ -762,6 +759,8 @@
                             if (!rookIdForCastle || !currentPiecesData[rookIdForCastle] || currentPiecesData[rookIdForCastle].type !== 'rook') isCastling = false;
                             else rookTargetColForCastle = move.c > pieceData.col ? pieceData.col + 1 : pieceData.col - 1;
                         }
+                        // For checkmate/stalemate, isMoveLegal needs to check against the *current* game state (gameData.piecesData)
+                        // as if this move *were* to be made from that state.
                         if (isMoveLegal(pieceId, move.r, move.c, isCastling, rookIdForCastle, rookTargetColForCastle)) {
                              allMoves.push({ pieceId, r: move.r, c: move.c });
                         }
@@ -771,7 +770,7 @@
             return allMoves;
         }
         
-        function getPotentialMoves_Simulated_For_GetAll(pieceId, currentPiecesData) { // Specifically for checkmate/stalemate logic
+        function getPotentialMoves_Simulated_For_GetAll(pieceId, currentPiecesData) { 
             const pieceData = currentPiecesData[pieceId];
             if (!pieceData) return [];
             const { row, col, type, color } = pieceData;
@@ -812,43 +811,35 @@
             console.log(`[makeMoveOnFirestore] Moving ${movedPieceId} to ${newRow},${newCol}. Castling: ${isCastling}`);
 
             const batch = writeBatch(db);
-            const updates = {}; // For Firestore update
+            const updates = {}; 
             
-            // Create a deep copy of current piecesData to simulate the move for check/checkmate logic
             let tempPiecesDataForCheck = JSON.parse(JSON.stringify(gameData.piecesData));
 
-            // --- Apply move to tempPiecesDataForCheck ---
-            const pieceToMoveData = tempPiecesDataForCheck[movedPieceId];
-            const oldRow = pieceToMoveData.row;
-            const oldCol = pieceToMoveData.col;
+            const pieceToMoveData = tempPiecesDataForCheck[movedPieceId]; // This is a copy
+            // const oldRow = pieceToMoveData.row; // Not needed for Firestore update directly
+            // const oldCol = pieceToMoveData.col;
 
             pieceToMoveData.row = newRow;
             pieceToMoveData.col = newCol;
             pieceToMoveData.hasMoved = true;
-
-            // Simulate capture in tempPiecesDataForCheck
-            // Need to find what pieceId is at newRow, newCol on the *original* board
-            const originalBoardForCaptureCheck = buildTempBoardFromPiecesData(gameData.piecesData);
-            const capturedPieceIdOriginal = originalBoardForCaptureCheck[newRow][newCol];
-
-            if (capturedPieceIdOriginal && capturedPieceIdOriginal !== movedPieceId) {
-                delete tempPiecesDataForCheck[capturedPieceIdOriginal]; // Remove captured piece from simulation
-                updates[`piecesData.${capturedPieceIdOriginal}`] = deleteField(); // Mark for deletion in Firestore
-                console.log(`Piece ${capturedPieceIdOriginal} captured.`);
-            }
             
             updates[`piecesData.${movedPieceId}.row`] = newRow;
             updates[`piecesData.${movedPieceId}.col`] = newCol;
             updates[`piecesData.${movedPieceId}.hasMoved`] = true;
 
+            const originalBoardForCaptureCheck = buildTempBoardFromPiecesData(gameData.piecesData);
+            const capturedPieceIdOriginal = originalBoardForCaptureCheck[newRow][newCol];
 
+            if (capturedPieceIdOriginal && capturedPieceIdOriginal !== movedPieceId) {
+                delete tempPiecesDataForCheck[capturedPieceIdOriginal]; 
+                updates[`piecesData.${capturedPieceIdOriginal}`] = deleteField(); 
+                console.log(`Piece ${capturedPieceIdOriginal} captured.`);
+            }
+            
             if (isCastling && rookIdToMove) {
-                const rookToMoveData = tempPiecesDataForCheck[rookIdToMove];
-                // const rookOldRow = rookToMoveData.row; // Row doesn't change
-                // const rookOldCol = rookToMoveData.col;
-
-                rookToMoveData.col = rookTargetCol;
-                rookToMoveData.hasMoved = true;
+                const rookToMoveDataSim = tempPiecesDataForCheck[rookIdToMove]; // Operate on the copy
+                rookToMoveDataSim.col = rookTargetCol;
+                rookToMoveDataSim.hasMoved = true;
                 
                 updates[`piecesData.${rookIdToMove}.col`] = rookTargetCol;
                 updates[`piecesData.${rookIdToMove}.hasMoved`] = true;
@@ -889,8 +880,73 @@
                 showMessage("Error making move: " + error.message + ". Please try again.");
             }
         }
+        
+        function onMouseDown(event) { // Added this function back in as it was missing
+            event.preventDefault();
+            if (gameOver || !localPlayerColor || gameData.currentPlayer !== localPlayerColor || (gameData.playerIds && gameData.playerIds[localPlayerColor] !== localPlayerAuthId) ) {
+                 if (gameOver) showMessage("Game Over. No more moves allowed.");
+                 else if (!localPlayerColor) showMessage("You are spectating.");
+                 else if (gameData.currentPlayer !== localPlayerColor) showMessage("Not your turn.");
+                return; 
+            }
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true); 
+            if (intersects.length > 0) {
+                let clickedObjectOrGroup = intersects[0].object;
+                while (clickedObjectOrGroup.parent && !(clickedObjectOrGroup.userData.type === 'square' || clickedObjectOrGroup.userData.id)) { // Check for userData.id for pieces
+                    clickedObjectOrGroup = clickedObjectOrGroup.parent;
+                }
+                const userData = clickedObjectOrGroup.userData;
 
-        function disposePiece(piece) { /* ... same as before ... */ 
+                if (userData.type === 'square') { 
+                    if (selectedPiece && highlightedSquares.includes(clickedObjectOrGroup)) {
+                        const targetRow = userData.row;
+                        const targetCol = userData.col;
+                        if (userData.isCastling) {
+                            makeMoveOnFirestore(selectedPiece.userData.id, targetRow, targetCol, true, userData.rook.userData.id, userData.rookTargetCol);
+                        } else {
+                            makeMoveOnFirestore(selectedPiece.userData.id, targetRow, targetCol);
+                        }
+                    } else if (selectedPiece) { if(statusElement) statusElement.textContent = "Invalid move. Select a highlighted square or another piece.";}
+                    else {if(statusElement) statusElement.textContent = "Select a piece first.";}
+                } else if (userData.id && userData.color === localPlayerColor) { 
+                    selectPiece(chessPieces[userData.id]); 
+                } else if (userData.id && userData.color !== localPlayerColor && selectedPiece) { 
+                     const targetSquare = boardSquares[userData.row][userData.col];
+                     if (highlightedSquares.includes(targetSquare)) {
+                        makeMoveOnFirestore(selectedPiece.userData.id, userData.row, userData.col);
+                     } else {
+                        if(statusElement) statusElement.textContent = "Invalid capture target.";
+                     }
+                }
+            }
+        }
+        
+        function selectPiece(piece3D) { 
+            if (selectedPiece) {
+                const prevSquare = boardSquares[selectedPiece.userData.row][selectedPiece.userData.col];
+                prevSquare.material.color.setHex(prevSquare.userData.originalColor);
+            }
+            clearHighlights(); 
+            selectedPiece = piece3D; 
+            const { row, col, type, color, id } = piece3D.userData; // Use id from piece3D.userData
+            const currentSquare = boardSquares[row][col];
+            currentSquare.material.color.set(squareColors.selected);
+            if(statusElement) statusElement.textContent = `Selected ${type} (${color}). Choose a destination.`;
+            highlightValidMoves(id); // Pass piece ID
+        }
+
+        function clearHighlights() { 
+            highlightedSquares.forEach(sq => {
+                sq.material.color.setHex(sq.userData.originalColor);
+                delete sq.userData.isCastling; delete sq.userData.rook; delete sq.userData.rookTargetCol;
+            }); 
+            highlightedSquares = []; 
+        }
+
+
+        function disposePiece(piece) { 
             if (!piece) return;
             if (piece.children && piece.children.length > 0) {
                 piece.children.forEach(child => {
@@ -902,7 +958,7 @@
                 if (piece.material) { if (Array.isArray(piece.material)) piece.material.forEach(mat => mat.dispose()); else piece.material.dispose(); }
             }
         }
-        function triggerConfetti() { /* ... same as before ... */ 
+        function triggerConfetti() { 
              if (!scene) return;
             for (let i = 0; i < 200; i++) {
                 const geometry = new THREE.SphereGeometry(0.3, 8, 8); 
@@ -914,13 +970,13 @@
                 scene.add(particle); confettiParticles.push(particle);
             }
         }
-        function animateConfetti() { /* ... same as before ... */ 
+        function animateConfetti() { 
             for (let i = confettiParticles.length - 1; i >= 0; i--) {
                 const particle = confettiParticles[i]; particle.position.add(particle.velocity); particle.life--;
                 if (particle.life <= 0) { scene.remove(particle); disposePiece(particle); confettiParticles.splice(i, 1); }
             }
         }
-        function animate() { /* ... same as before ... */ 
+        function animate() { 
             requestAnimationFrame(animate); 
             if(controls) controls.update(); 
             if(renderer && scene && camera) renderer.render(scene, camera); 
