@@ -138,6 +138,13 @@
             }
         }
 
+        function onWindowResize() {
+            if(!camera || !renderer) return; 
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
         // Helper to build temporary 2D board from piecesData for simulations
         function buildTempBoardFromPiecesData(currentPiecesData) {
             let tempBoard = new Array(boardSize).fill(null).map(() => new Array(boardSize).fill(null));
@@ -500,7 +507,7 @@
             controls.minDistance = 30; controls.maxDistance = 250; controls.maxPolarAngle = Math.PI / 2 - 0.03; 
             raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
             createChessboard(); 
-            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('resize', onWindowResize, false); // Added event listener
             if(renderer.domElement) renderer.domElement.addEventListener('mousedown', onMouseDown, false); else console.error("Renderer DOM element not found for mousedown listener.");
             if(!gameData.gameOver) animate(); 
         }
@@ -759,8 +766,6 @@
                             if (!rookIdForCastle || !currentPiecesData[rookIdForCastle] || currentPiecesData[rookIdForCastle].type !== 'rook') isCastling = false;
                             else rookTargetColForCastle = move.c > pieceData.col ? pieceData.col + 1 : pieceData.col - 1;
                         }
-                        // For checkmate/stalemate, isMoveLegal needs to check against the *current* game state (gameData.piecesData)
-                        // as if this move *were* to be made from that state.
                         if (isMoveLegal(pieceId, move.r, move.c, isCastling, rookIdForCastle, rookTargetColForCastle)) {
                              allMoves.push({ pieceId, r: move.r, c: move.c });
                         }
@@ -815,10 +820,8 @@
             
             let tempPiecesDataForCheck = JSON.parse(JSON.stringify(gameData.piecesData));
 
-            const pieceToMoveData = tempPiecesDataForCheck[movedPieceId]; // This is a copy
-            // const oldRow = pieceToMoveData.row; // Not needed for Firestore update directly
-            // const oldCol = pieceToMoveData.col;
-
+            const pieceToMoveData = tempPiecesDataForCheck[movedPieceId]; 
+            
             pieceToMoveData.row = newRow;
             pieceToMoveData.col = newCol;
             pieceToMoveData.hasMoved = true;
@@ -837,7 +840,7 @@
             }
             
             if (isCastling && rookIdToMove) {
-                const rookToMoveDataSim = tempPiecesDataForCheck[rookIdToMove]; // Operate on the copy
+                const rookToMoveDataSim = tempPiecesDataForCheck[rookIdToMove]; 
                 rookToMoveDataSim.col = rookTargetCol;
                 rookToMoveDataSim.hasMoved = true;
                 
@@ -881,7 +884,7 @@
             }
         }
         
-        function onMouseDown(event) { // Added this function back in as it was missing
+        function onMouseDown(event) { 
             event.preventDefault();
             if (gameOver || !localPlayerColor || gameData.currentPlayer !== localPlayerColor || (gameData.playerIds && gameData.playerIds[localPlayerColor] !== localPlayerAuthId) ) {
                  if (gameOver) showMessage("Game Over. No more moves allowed.");
@@ -894,7 +897,7 @@
             const intersects = raycaster.intersectObjects(scene.children, true); 
             if (intersects.length > 0) {
                 let clickedObjectOrGroup = intersects[0].object;
-                while (clickedObjectOrGroup.parent && !(clickedObjectOrGroup.userData.type === 'square' || clickedObjectOrGroup.userData.id)) { // Check for userData.id for pieces
+                while (clickedObjectOrGroup.parent && !(clickedObjectOrGroup.userData.type === 'square' || clickedObjectOrGroup.userData.id)) { 
                     clickedObjectOrGroup = clickedObjectOrGroup.parent;
                 }
                 const userData = clickedObjectOrGroup.userData;
@@ -930,11 +933,11 @@
             }
             clearHighlights(); 
             selectedPiece = piece3D; 
-            const { row, col, type, color, id } = piece3D.userData; // Use id from piece3D.userData
+            const { row, col, type, color, id } = piece3D.userData; 
             const currentSquare = boardSquares[row][col];
             currentSquare.material.color.set(squareColors.selected);
             if(statusElement) statusElement.textContent = `Selected ${type} (${color}). Choose a destination.`;
-            highlightValidMoves(id); // Pass piece ID
+            highlightValidMoves(id); 
         }
 
         function clearHighlights() { 
