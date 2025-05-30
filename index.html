@@ -7,24 +7,72 @@
     <style>
         body { margin: 0; font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #gameContainer { position: relative; width: 100%; height: 100%; }
-        #info { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 700px; text-align: center; z-index: 100; padding: 10px; background-color: rgba(0,0,0,0.6); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-        /* Updated #controlsBar for better spacing with mr-auto on h1 */
-        #controlsBar { display: flex; align-items: center; margin-bottom: 5px;}
-        #playerInfo { margin-bottom: 5px; font-size: 0.9em;}
-        #status { font-size: 1em; margin-top:5px;}
+        
+        /* Info Panel Styling */
+        #infoPanel { 
+            position: fixed; /* Changed from absolute for better viewport control */
+            top: 1rem; /* 16px */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%; 
+            max-width: 600px; /* Max width for larger screens */
+            z-index: 100; 
+            padding: 0.75rem; /* 12px */
+            background-color: rgba(26, 32, 44, 0.85); /* Slightly more opaque dark gray/blue */
+            border-radius: 0.5rem; /* 8px */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px); /* Frosted glass effect */
+            border: 1px solid rgba(74, 85, 104, 0.5); /* Subtle border */
+        }
+
+        #infoPanelHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem; /* 8px */
+        }
+        #infoPanelHeader h1 {
+            font-size: 1.25rem; /* text-xl */
+            line-height: 1.75rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        #playerInfo { margin-bottom: 0.25rem; font-size: 0.875rem; color: #cbd5e0; } /* text-sm text-slate-300 */
+        #turnInfo { font-size: 1.125rem; color: white; margin-top: 0.25rem; } /* text-lg */
+        #status { font-size: 0.875rem; color: #a0aec0; margin-top: 0.25rem; } /* text-sm text-slate-400 */
+
         #messageBox { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(30, 30, 30, 0.97); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.6); z-index: 1000; display: none; text-align: center; border: 1px solid #444; }
         #messageBox button { background-color: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 1em; transition: background-color 0.3s; }
         #messageBox button:hover { background-color: #0056b3; }
+        
         canvas { display: block; }
+        
         #nameEntryModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); z-index: 2000; display: flex; justify-content: center; align-items: center; }
         #nameEntryBox { background-color: #2c2c2c; padding: 30px; border-radius: 10px; text-align: center; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
         #nameEntryBox h2 { margin-top: 0; color: #f0f0f0; }
         #nameInput { padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #555; background-color: #333; color: #fff; width: 80%; }
         #joinGameButton { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
         #joinGameButton:hover { background-color: #1e7e34; }
+        
         .confetti { position: absolute; width: 10px; height: 10px; background-color: red; opacity: 0.7; border-radius: 50%; }
-        #resetGameButton { background-color: #dc3545; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 0.9em; flex-shrink: 0; /* Prevent button from shrinking */ }
+        
+        #resetGameButton { background-color: #dc3545; color: white; padding: 0.5rem 0.75rem; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; flex-shrink: 0; }
         #resetGameButton:hover { background-color: #c82333; }
+
+        #hamburgerButton {
+            position: fixed;
+            top: 1rem; /* 16px */
+            right: 1rem; /* 16px */
+            z-index: 101; /* Above infoPanel */
+            padding: 0.5rem; /* 8px */
+            background-color: rgba(55, 65, 81, 0.8); /* gray-700 with opacity */
+            border-radius: 0.375rem; /* 6px */
+            color: white;
+            border: 1px solid rgba(74, 85, 104, 0.5);
+            backdrop-filter: blur(5px);
+        }
+         /* Tailwind's lg breakpoint is 1024px. `hidden` means display: none; `lg:block` means display: block at lg and up. */
     </style>
     <script src="https://cdn.tailwindcss.com"></script>
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -46,11 +94,16 @@
         </div>
     </div>
 
+    <button id="hamburgerButton" class="lg:hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+    </button>
+
     <div id="gameContainer" style="display: none;">
-        <div id="info">
-            <div id="controlsBar">
-                {/* Added mr-auto to h1 for layout control */}
-                <h1 class="text-2xl font-bold mr-auto">3D Chess</h1> 
+        <div id="infoPanel" class="hidden lg:block">
+            <div id="infoPanelHeader">
+                <h1>3D Chess</h1> 
                 <button id="resetGameButton">Reset Game</button>
             </div>
             <div id="playerInfo">Your Name: <span id="localPlayerName"></span> (<span id="localPlayerColor"></span>)</div>
@@ -71,7 +124,6 @@
         import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebase Setup ---
-        // IMPORTANT: Replace this with your actual Firebase config object!
         const firebaseConfig = {
             apiKey: "AIzaSyCdvtD3EZ676BvyI9SWSity90GF4rSu4I0", // Replace
             authDomain: "chess-8c8fe.firebaseapp.com", // Replace
@@ -127,6 +179,8 @@
         const localPlayerNameSpan = document.getElementById('localPlayerName');
         const localPlayerColorSpan = document.getElementById('localPlayerColor');
         const resetGameButton = document.getElementById('resetGameButton');
+        const hamburgerButton = document.getElementById('hamburgerButton'); // Get hamburger
+        const infoPanel = document.getElementById('infoPanel'); // Get info panel
 
         // --- Confetti ---
         let confettiParticles = [];
@@ -216,6 +270,12 @@
         messageButton.addEventListener('click', () => { if(messageBox) messageBox.style.display = 'none'; });
         joinGameButton.addEventListener('click', handleJoinGame);
         if(resetGameButton) resetGameButton.addEventListener('click', handleResetGame); 
+        if(hamburgerButton && infoPanel) { // Hamburger functionality
+            hamburgerButton.addEventListener('click', () => {
+                infoPanel.classList.toggle('hidden');
+                infoPanel.classList.toggle('block'); // Explicitly add block if not using Tailwind's responsive `lg:block` for the toggle
+            });
+        }
         
         onAuthStateChanged(auth, async (user) => {
             console.log(`[onAuthStateChanged] Fired. User:`, user);
@@ -234,13 +294,14 @@
             } else { 
                 console.log("[onAuthStateChanged] No user / signed out.");
                 localPlayerAuthId = null;
-                if (gameInitialized) { // Only fully reset UI if game was initialized
+                if (gameInitialized) { 
                     localPlayerName = ''; 
                     localPlayerColor = null;
                     if(localPlayerNameSpan) localPlayerNameSpan.textContent = ""; 
                     if(localPlayerColorSpan) localPlayerColorSpan.textContent = "";
                     if(nameEntryModal) nameEntryModal.style.display = 'flex';
                     if(gameContainer) gameContainer.style.display = 'none'; 
+                    if(infoPanel) infoPanel.classList.add('hidden'); // Hide info panel on sign out/reset
                     if(turnInfoElement) turnInfoElement.textContent = "Disconnected.";
                     if(statusElement) statusElement.textContent = "Please enter your name to join.";
                 }
@@ -331,10 +392,8 @@
                     console.log(`[setupGameSession] Player ${localPlayerName} could not be assigned a color. Spectating.`);
                 }
 
-                // If game doc doesn't exist, or piecesData is missing, or game was over, initialize/reset.
-                // This logic now also handles the case after a "full reset" where players/playerIds are empty.
                 if (!gameSnap.exists() || !currentPiecesData || gameIsOver) { 
-                    if (localPlayerColor) { // Only allow an active player (first one in) to initialize
+                    if (localPlayerColor) { 
                         console.log(`[setupGameSession] Initializing/Resetting game data with player ${localPlayerColor}: ${localPlayerName}`);
                         const initialPieceSetup = setupInitialPiecesData(); 
                         const initialGameData = {
@@ -346,11 +405,10 @@
                             check: false, checkedPlayer: null
                         };
                         await setDoc(gameDocRef, initialGameData); 
-                    } else if (!gameSnap.exists()){ // No game doc and this client is a spectator
+                    } else if (!gameSnap.exists()){ 
                          console.log("[setupGameSession] No game document and client is spectator. Waiting for a player to create the game.");
-                         // Do nothing, wait for game to be created by a player.
                     }
-                } else if (localPlayerColor) { // Game exists and is ongoing, just update this player's info
+                } else if (localPlayerColor) { 
                     console.log(`[setupGameSession] Updating game doc for player ${localPlayerColor}: ${localPlayerName}`);
                     await updateDoc(gameDocRef, {
                         [`players.${localPlayerColor}`]: localPlayerName, 
@@ -378,8 +436,6 @@
         }
 
         async function handleResetGame() {
-            // Allow any authenticated user to attempt a reset, Firestore rules should ultimately control permission if needed.
-            // Or, add a check: if (!localPlayerColor && !(gameData.players && (gameData.players.white === localPlayerName || gameData.players.black === localPlayerName))) {
             if (!auth.currentUser) {
                  showMessage("You must be connected to reset the game.");
                  return;
@@ -388,12 +444,11 @@
             
             try {
                 const initialPieceSetup = setupInitialPiecesData();
-                // When resetting, clear player assignments. New players will fill slots.
                 const resetGameData = {
                     piecesData: initialPieceSetup,
                     currentPlayer: 'white',
-                    players: {}, // Clear players
-                    playerIds: {}, // Clear player IDs
+                    players: {}, 
+                    playerIds: {}, 
                     gameOver: false,
                     winner: null,
                     check: false,
@@ -403,7 +458,6 @@
                 await setDoc(gameDocRef, resetGameData); 
                 showMessage("Game has been reset! All players will need to rejoin by entering their name.");
                 console.log("[handleResetGame] Game reset successfully in Firestore. Players cleared.");
-                // Client-side will react via onSnapshot to show name entry modal.
             } catch (error) {
                 console.error("[handleResetGame] Error resetting game:", error);
                 showMessage("Error resetting game: " + error.message);
@@ -419,31 +473,33 @@
                 if (docSnap.exists()) {
                     gameData = docSnap.data();
 
-                    // Check if this player needs to be kicked back to name entry (e.g., after a reset)
-                    if (localPlayerAuthId) { // Only if user is authenticated
+                    if (localPlayerAuthId) { 
                         let playerStillInGame = false;
                         if (gameData.playerIds) {
                             if (gameData.playerIds.white === localPlayerAuthId) {
                                 playerStillInGame = true;
-                                if (localPlayerColor !== 'white') localPlayerColor = 'white'; // Correct local color if mismatched
+                                if (localPlayerColor !== 'white') localPlayerColor = 'white'; 
                             } else if (gameData.playerIds.black === localPlayerAuthId) {
                                 playerStillInGame = true;
-                                if (localPlayerColor !== 'black') localPlayerColor = 'black'; // Correct local color
+                                if (localPlayerColor !== 'black') localPlayerColor = 'black'; 
                             }
                         }
-                        if (!playerStillInGame && localPlayerColor !== null) { // Was a player, but no longer in playerIds
+                        if (!playerStillInGame && localPlayerColor !== null) { 
                             console.log(`[onSnapshot] Player ${localPlayerName} seems to be removed or game reset. Reverting to name entry.`);
-                            localPlayerColor = null; // Critical to unassign
-                            gameInitialized = false; // Allow re-setup
+                            localPlayerColor = null; 
+                            gameInitialized = false; 
                             if(localPlayerColorSpan) localPlayerColorSpan.textContent = "";
                             if(nameEntryModal) nameEntryModal.style.display = 'flex';
                             if(gameContainer) gameContainer.style.display = 'none';
+                            if(infoPanel) infoPanel.classList.add('hidden'); // Also hide info panel
                             if(statusElement) statusElement.textContent = "Game was reset. Please enter your name to rejoin.";
-                            return; // Stop processing this snapshot for this client
+                            return; 
                         }
-                         // Update local player color display if it was just assigned/confirmed
                         if(localPlayerColor && localPlayerColorSpan && localPlayerColorSpan.textContent !== localPlayerColor) {
                             localPlayerColorSpan.textContent = localPlayerColor;
+                        }
+                        if(localPlayerNameSpan && localPlayerNameSpan.textContent !== localPlayerName){
+                            localPlayerNameSpan.textContent = localPlayerName; // Ensure name is up-to-date
                         }
                     }
 
@@ -473,14 +529,14 @@
                             if(statusElement) statusElement.textContent = message;
                          }
                     }
-                } else { // Document does not exist (e.g. after a manual delete or very first load)
+                } else { 
                     if(statusElement) statusElement.textContent = "Game room not found. Waiting for a player to start a game...";
-                    // If local player had a name, and game was initialized, this means game was deleted.
                     if (localPlayerName && gameInitialized) {
-                        gameInitialized = false; // Reset flag
-                        localPlayerColor = null; // Unassign color
+                        gameInitialized = false; 
+                        localPlayerColor = null; 
                         if(nameEntryModal) nameEntryModal.style.display = 'flex';
                         if(gameContainer) gameContainer.style.display = 'none';
+                        if(infoPanel) infoPanel.classList.add('hidden');
                         showMessage("Game room was closed. Please enter your name to start or join a new game.");
                     }
                 }
@@ -1060,7 +1116,7 @@
                 });
             } else {
                 if (piece.geometry) piece.geometry.dispose();
-                if (piece.material) { if (Array.isArray(piece.material)) piece.material.forEach(mat => mat.dispose()); else piece.material.dispose(); }
+                if (piece.material) { if (Array.isArray(piece.material)) piece.material.forEach(mat => mat.dispose()); else child.material.dispose(); }
             }
         }
         function triggerConfetti() { 
